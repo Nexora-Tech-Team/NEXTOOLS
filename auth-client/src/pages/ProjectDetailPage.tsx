@@ -71,24 +71,24 @@ function lsSet(key: string, val: unknown) {
 
 // ─── Task History ─────────────────────────────────────────────────────────────
 
-interface HistoryChange { field: string; from: string; to: string }
-interface HistoryEntry {
-  id: string;
-  ts: string;
-  userId: number;
-  userName: string;
-  action: 'created' | 'updated';
-  changes: HistoryChange[];
-}
+// interface HistoryChange { field: string; from: string; to: string }
+// interface HistoryEntry {
+//  id: string;
+//  ts: string;
+//  userId: number;
+//  userName: string;
+//  action: 'created' | 'updated';
+//  changes: HistoryChange[];
+// }
 
-function lsGetHistory(taskId: number): HistoryEntry[] {
-  return lsGet(`task-hist-${taskId}`, []);
-}
-function lsAddHistory(taskId: number, entry: Omit<HistoryEntry, 'id'>) {
-  const hist = lsGetHistory(taskId);
-  hist.unshift({ ...entry, id: `${Date.now()}-${Math.random()}` });
-  lsSet(`task-hist-${taskId}`, hist.slice(0, 50));
-}
+// function lsGetHistory(taskId: number): HistoryEntry[] {
+// return lsGet(`task-hist-${taskId}`, []);
+// }
+// function lsAddHistory(taskId: number, entry: Omit<HistoryEntry, 'id'>) {
+// const hist = lsGetHistory(taskId);
+// hist.unshift({ ...entry, id: `${Date.now()}-${Math.random()}` });
+// lsSet(`task-hist-${taskId}`, hist.slice(0, 50));
+// }
 function fmtTs(ts: string) {
   return new Date(ts).toLocaleString('id-ID', {
     day: 'numeric', month: 'short', year: 'numeric',
@@ -295,7 +295,7 @@ export default function ProjectDetailPage() {
   };
 
   const handleDueDateChange = async (task: Task, due_date: string) => {
-    const oldDate = task.due_date ? String(task.due_date).substring(0, 10) : '';
+   // const oldDate = task.due_date ? String(task.due_date).substring(0, 10) : '';
     setTasks(prev => prev.map(t => t.id === task.id ? { ...t, due_date: due_date || undefined } : t));
     try {
       await tasksApi.update(task.id, { due_date });
