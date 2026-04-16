@@ -1,5 +1,5 @@
 import api from './client';
-import type { Project, CreateProjectRequest, UpdateProjectRequest } from '../types';
+import type { Project, CreateProjectRequest, UpdateProjectRequest, ColumnConfig, UpdateColumnConfigRequest } from '../types';
 
 export const projectsApi = {
   getAll: () =>
@@ -16,4 +16,10 @@ export const projectsApi = {
 
   delete: (id: number) =>
     api.delete<{ message: string }>(`/projects/${id}`).then((r) => r.data),
+
+  getColumnConfig: (id: number) =>
+    api.get<{ data: ColumnConfig }>(`/projects/${id}/column-config`).then((r) => r.data.data),
+
+  updateColumnConfig: (id: number, data: UpdateColumnConfigRequest) =>
+    api.put<{ message: string; data: ColumnConfig }>(`/projects/${id}/column-config`, data).then((r) => r.data.data),
 };

@@ -61,8 +61,22 @@ export interface Task {
   updated_at: string;
 }
 
-// Auth
-export interface LoginRequest { email: string; password: string; }
+// Column config
+export interface CustomColumn {
+  key: string;
+  label: string;
+  border: string;
+  badge: string;
+  dot: string;
+}
+export interface ColumnConfig {
+  labels: Record<string, string>;
+  custom_cols: CustomColumn[];
+}
+export interface UpdateColumnConfigRequest {
+  labels: Record<string, string>;
+  custom_cols: CustomColumn[];
+}
 export interface RegisterRequest { name: string; email: string; password: string; role?: Role; }
 export interface LoginResponse { token: string; user: User; }
 export interface UpdateUserRequest { name?: string; email?: string; password?: string; role?: Role; is_active?: boolean; }

@@ -10,7 +10,7 @@ import { tasksApi } from '../api/tasks';
 import { usersApi } from '../api/users';
 import { membersApi } from '../api/members';
 import { useAuth } from '../context/AuthContext';
-import type { Project, Task, User, ProjectMember, CreateTaskRequest, UpdateTaskRequest, TaskStatus, TaskPriority, TaskHistoryEntry } from '../types';
+import type { Project, Task, User, ProjectMember, CreateTaskRequest, UpdateTaskRequest, TaskStatus, TaskPriority, TaskHistoryEntry, CustomColumn } from '../types';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -126,7 +126,7 @@ export default function ProjectDetailPage() {
   const [selectedTask,     setSelectedTask]     = useState<Task | null>(null);
   const [form,             setForm]             = useState<CreateTaskRequest>(EMPTY_FORM);
 
-  // column customisation (localStorage per project)
+  // column customisation — loaded from API, cached in localStorage for instant display
   const [colLabels, setColLabels] = useState<Record<string, string>>(
     () => lsGet(`proj-${projectId}-labels`, {}),
   );
@@ -136,7 +136,7 @@ export default function ProjectDetailPage() {
   const [editingColKey, setEditingColKey] = useState<string | null>(null);
   const [editingLabel,  setEditingLabel]  = useState('');
 
-  // custom columns (localStorage per project)
+  // custom columns — loaded from API, cached in localStorage
   const [customCols, setCustomCols] = useState<ColDef[]>(
     () => lsGet(`proj-${projectId}-custom-cols`, []),
   );
@@ -177,16 +177,26 @@ export default function ProjectDetailPage() {
   const fetchAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [proj, taskRes, userRes, memberRes] = await Promise.all([
+      const [proj, taskRes, userRes, memberRes, colCfg] = await Promise.all([
         projectsApi.getById(projectId),
         tasksApi.getByProject(projectId),
         usersApi.getAll(),
         membersApi.getByProject(projectId),
+        projectsApi.getColumnConfig(projectId).catch(() => null),
       ]);
       setProject(proj.data);
       setTasks(taskRes.data || []);
       setUsers(userRes.data || []);
       setMembers(memberRes.data || []);
+      if (colCfg) {
+        // API wins over localStorage — sync both
+        const labels = colCfg.labels || {};
+        const cols = (colCfg.custom_cols || []) as ColDef[];
+        setColLabels(labels);
+        setCustomCols(cols);
+        lsSet(`proj-${projectId}-labels`, labels);
+        lsSet(`proj-${projectId}-custom-cols`, cols);
+      }
     } catch { navigate('/projects'); }
     finally { setLoading(false); }
   }, [projectId, navigate]);
@@ -197,6 +207,23 @@ export default function ProjectDetailPage() {
 
   const getLabel = (col: ColDef) => colLabels[col.key] || col.label;
 
+  /** Persist column config to API + localStorage */
+  const saveColumnConfig = useCallback(
+    async (labels: Record<string, string>, cols: ColDef[]) => {
+      lsSet(`proj-${projectId}-labels`, labels);
+      lsSet(`proj-${projectId}-custom-cols`, cols);
+      try {
+        await projectsApi.updateColumnConfig(projectId, {
+          labels,
+          custom_cols: cols as CustomColumn[],
+        });
+      } catch {
+        showToast('Gagal menyimpan konfigurasi kolom', false);
+      }
+    },
+    [projectId], // eslint-disable-line react-hooks/exhaustive-deps
+  );
+
   const startRenameCol = (col: ColDef) => {
     setEditingColKey(col.key);
     setEditingLabel(getLabel(col));
@@ -206,7 +233,7 @@ export default function ProjectDetailPage() {
     if (editingColKey && editingLabel.trim()) {
       const next = { ...colLabels, [editingColKey]: editingLabel.trim() };
       setColLabels(next);
-      lsSet(`proj-${projectId}-labels`, next);
+      saveColumnConfig(next, customCols);
     }
     setEditingColKey(null);
   };
@@ -227,7 +254,7 @@ export default function ProjectDetailPage() {
     const newCol: ColDef = { key: `custom_${Date.now()}`, label, ...color };
     const next = [...customCols, newCol];
     setCustomCols(next);
-    lsSet(`proj-${projectId}-custom-cols`, next);
+    saveColumnConfig(colLabels, next);
     setNewColLabel('');
     setAddingCol(false);
   };
@@ -240,7 +267,7 @@ export default function ProjectDetailPage() {
     }
     const next = customCols.filter(c => c.key !== key);
     setCustomCols(next);
-    lsSet(`proj-${projectId}-custom-cols`, next);
+    saveColumnConfig(colLabels, next);
   };
 
   // ── Task CRUD ──────────────────────────────────────────────────────────────

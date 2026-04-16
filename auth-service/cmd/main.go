@@ -30,6 +30,7 @@ func main() {
 	taskRepo := repository.NewTaskRepository(database.DB)
 	taskHistRepo := repository.NewTaskHistoryRepository(database.DB)
 	projectMemberRepo := repository.NewProjectMemberRepository(database.DB)
+	columnConfigRepo := repository.NewColumnConfigRepository(database.DB)
 
 	// Services
 	authSvc := service.NewAuthService(userRepo)
@@ -38,6 +39,7 @@ func main() {
 	taskSvc := service.NewTaskService(taskRepo, projectRepo, taskHistRepo)
 	taskHistSvc := service.NewTaskHistoryService(taskHistRepo)
 	projectMemberSvc := service.NewProjectMemberService(projectMemberRepo, projectRepo, userRepo)
+	columnConfigSvc := service.NewColumnConfigService(columnConfigRepo, projectRepo, projectMemberRepo)
 
 	// Handlers
 	authHandler := handler.NewAuthHandler(authSvc)
@@ -45,6 +47,7 @@ func main() {
 	projectHandler := handler.NewProjectHandler(projectSvc)
 	taskHandler := handler.NewTaskHandler(taskSvc, taskHistSvc)
 	projectMemberHandler := handler.NewProjectMemberHandler(projectMemberSvc)
+	columnConfigHandler := handler.NewColumnConfigHandler(columnConfigSvc)
 
 	r := gin.Default()
 
@@ -95,6 +98,9 @@ func main() {
 
 		api.POST("/projects/:id/tasks", taskHandler.Create)
 		api.GET("/projects/:id/tasks", taskHandler.GetByProject)
+
+		api.GET("/projects/:id/column-config", columnConfigHandler.Get)
+		api.PUT("/projects/:id/column-config", columnConfigHandler.Update)
 
 		api.GET("/tasks/:id", taskHandler.GetByID)
 		api.PUT("/tasks/:id", taskHandler.Update)

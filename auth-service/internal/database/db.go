@@ -42,6 +42,7 @@ func Migrate() {
 		&model.Task{},
 		&model.TaskHistory{},
 		&model.ProjectMember{},
+		&model.ProjectColumnConfig{},
 	)
 	if err != nil {
 		log.Fatalf("Failed to run migrations: %v", err)
