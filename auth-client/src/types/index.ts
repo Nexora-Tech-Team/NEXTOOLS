@@ -77,6 +77,9 @@ export interface UpdateColumnConfigRequest {
   labels: Record<string, string>;
   custom_cols: CustomColumn[];
 }
+
+// Auth
+export interface LoginRequest { email: string; password: string; }
 export interface RegisterRequest { name: string; email: string; password: string; role?: Role; }
 export interface LoginResponse { token: string; user: User; }
 export interface UpdateUserRequest { name?: string; email?: string; password?: string; role?: Role; is_active?: boolean; }

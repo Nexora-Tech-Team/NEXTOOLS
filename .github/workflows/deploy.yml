@@ -1,0 +1,55 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Deploy to VPS
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: 22
+          script_stop: true
+          script: |
+            set -e
+            APP_DIR="/root/nexora-node/apps/nextools"
+
+            echo "📦 Pulling latest code from GitHub..."
+            cd $APP_DIR
+            git fetch origin main
+            git reset --hard origin/main
+
+            echo "🔨 Building frontend..."
+            cd $APP_DIR/auth-client
+            npm ci --prefer-offline
+            npm run build
+
+            echo "🔄 Restarting containers..."
+            cd $APP_DIR
+            # Restart backend (picks up new Go source from mounted volume)
+            docker compose restart nextools-backend
+            # Restart frontend (picks up new dist from mounted volume)
+            docker compose restart nextools-frontend
+
+            echo "✅ Deploy complete!"
+            echo "🌐 https://nextools.nexoratech.co"
+
+      - name: Notify success
+        if: success()
+        run: |
+          echo "✅ Deployed successfully to https://nextools.nexoratech.co"
+
+      - name: Notify failure
+        if: failure()
+        run: |
+          echo "❌ Deployment failed. Check logs above."
