@@ -9,7 +9,7 @@ import { projectsApi } from '../api/projects';
 import { tasksApi } from '../api/tasks';
 import { usersApi } from '../api/users';
 import { membersApi } from '../api/members';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../context/useAuth';
 import type { Project, Task, User, ProjectMember, CreateTaskRequest, UpdateTaskRequest, TaskStatus, TaskPriority, TaskHistoryEntry, CustomColumn } from '../types';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -54,6 +54,12 @@ const PRIORITY_CONFIG: Record<TaskPriority, { label: string; dot: string; text: 
   high:   { label: 'High',   dot: 'bg-red-400',    text: 'text-red-400',    bg: 'bg-red-500/10',    cardBorder: 'border-l-red-500'    },
 };
 
+const PRIORITY_OPTIONS: Array<{ value: TaskPriority; label: string }> = [
+  { value: 'high', label: 'High' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'low', label: 'Low' },
+];
+
 const EMPTY_FORM: CreateTaskRequest = {
   title: '', description: '', assignee_id: undefined,
   status: 'backlog', priority: 'medium', due_date: '',
@@ -66,7 +72,8 @@ function lsGet<T>(key: string, fallback: T): T {
   catch { return fallback; }
 }
 function lsSet(key: string, val: unknown) {
-  try { localStorage.setItem(key, JSON.stringify(val)); } catch {}
+  try { localStorage.setItem(key, JSON.stringify(val)); }
+  catch (error) { console.warn('Unable to persist project view settings', error); }
 }
 
 // ─── Task History ─────────────────────────────────────────────────────────────
@@ -171,7 +178,9 @@ export default function ProjectDetailPage() {
       const list = res.data || [];
       setTasks(list);
       setSelectedTask(prev => prev ? (list.find(t => t.id === prev.id) ?? null) : null);
-    } catch {}
+    } catch (error) {
+      console.error('Failed to refresh tasks', error);
+    }
   }, [projectId]);
 
   const fetchAll = useCallback(async () => {
@@ -197,7 +206,9 @@ export default function ProjectDetailPage() {
         lsSet(`proj-${projectId}-labels`, labels);
         lsSet(`proj-${projectId}-custom-cols`, cols);
       }
-    } catch { navigate('/projects'); }
+      } catch {
+        navigate('/projects');
+      }
     finally { setLoading(false); }
   }, [projectId, navigate]);
 
@@ -221,7 +232,7 @@ export default function ProjectDetailPage() {
         showToast('Gagal menyimpan konfigurasi kolom', false);
       }
     },
-    [projectId], // eslint-disable-line react-hooks/exhaustive-deps
+    [projectId],
   );
 
   const startRenameCol = (col: ColDef) => {
@@ -241,7 +252,11 @@ export default function ProjectDetailPage() {
   const toggleCollapse = (key: string) => {
     setCollapsedCols(prev => {
       const next = new Set(prev);
-      next.has(key) ? next.delete(key) : next.add(key);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
       lsSet(`proj-${projectId}-collapsed`, [...next]);
       return next;
     });
@@ -400,27 +415,29 @@ export default function ProjectDetailPage() {
   );
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex h-full flex-col">
 
       {/* ── Header ── */}
-      <div className="px-6 py-4 border-b border-slate-700 flex items-center justify-between flex-shrink-0">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-shrink-0 flex-col gap-4 border-b border-slate-700 px-4 py-4 sm:px-6 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex min-w-0 items-start gap-3">
           <button onClick={() => navigate('/projects')}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700 transition-colors">
+            className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-slate-700 hover:text-white"
+            aria-label="Back to projects"
+          >
             <ArrowLeft className="w-4 h-4" />
           </button>
-          <div>
-            <h1 className="text-white font-bold">{project?.name}</h1>
+          <div className="min-w-0">
+            <h1 className="truncate text-white font-bold">{project?.name}</h1>
             {project?.description && <p className="text-slate-400 text-xs mt-0.5">{project.description}</p>}
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center lg:justify-end">
           <span className="text-xs text-slate-500">
             {hasFilter ? `${filteredTasks.length}/` : ''}{tasks.length} tasks
           </span>
           <button
             onClick={() => setShowMembersPanel(true)}
-            className="flex items-center gap-1.5 bg-slate-700 hover:bg-slate-600 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
+            className="flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-slate-700 px-3 py-2.5 text-sm font-medium text-white transition-colors hover:bg-slate-600"
           >
             <Users className="w-4 h-4" />
             Members
@@ -430,7 +447,7 @@ export default function ProjectDetailPage() {
           </button>
           <button
             onClick={() => { setShowAddTask(true); setForm(EMPTY_FORM); }}
-            className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
+            className="flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-indigo-600 px-3 py-2.5 text-sm font-medium text-white transition-colors hover:bg-indigo-500"
           >
             <Plus className="w-4 h-4" /> Add Task
           </button>
@@ -438,63 +455,65 @@ export default function ProjectDetailPage() {
       </div>
 
       {/* ── Filter bar ── */}
-      <div className="px-6 py-2 border-b border-slate-700/50 flex items-center gap-2 flex-shrink-0">
+      <div className="flex flex-shrink-0 flex-col gap-2 border-b border-slate-700/50 px-4 py-3 sm:px-6 lg:flex-row lg:items-center">
         {/* Search */}
-        <div className="relative">
+        <div className="relative w-full lg:w-auto">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500 pointer-events-none" />
           <input
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="Search tasks…"
-            className="bg-slate-800 border border-slate-700 text-white placeholder-slate-500 rounded-lg pl-8 pr-8 py-1.5 text-xs w-48 focus:outline-none focus:border-indigo-500 focus:w-64 transition-all"
+            className="w-full rounded-lg border border-slate-700 bg-slate-800 py-2 pl-8 pr-8 text-sm text-white placeholder-slate-500 transition-colors focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 lg:w-64"
           />
           {search && (
             <button onClick={() => setSearch('')}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white">
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-slate-500 hover:text-white"
+              aria-label="Clear search"
+            >
               <X className="w-3 h-3" />
             </button>
           )}
         </div>
 
-        {/* Priority */}
-        <select
-          value={filterPriority}
-          onChange={e => setFilterPriority(e.target.value as TaskPriority | 'all')}
-          className={`bg-slate-800 border rounded-lg px-2.5 py-1.5 text-xs focus:outline-none transition-colors ${filterPriority !== 'all' ? 'border-indigo-500 text-indigo-300' : 'border-slate-700 text-slate-400'}`}
-        >
-          <option value="all">All Priority</option>
-          <option value="high">🔴 High</option>
-          <option value="medium">🟡 Medium</option>
-          <option value="low">⚪ Low</option>
-        </select>
-
-        {/* Assignee */}
-        <select
-          value={filterAssignee === 'all' ? '' : String(filterAssignee)}
-          onChange={e => setFilterAssignee(e.target.value ? Number(e.target.value) : 'all')}
-          className={`bg-slate-800 border rounded-lg px-2.5 py-1.5 text-xs focus:outline-none transition-colors ${filterAssignee !== 'all' ? 'border-indigo-500 text-indigo-300' : 'border-slate-700 text-slate-400'}`}
-        >
-          <option value="">All Members</option>
-          {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-        </select>
-
-        {hasFilter && (
-          <button
-            onClick={() => { setSearch(''); setFilterPriority('all'); setFilterAssignee('all'); }}
-            className="flex items-center gap-1 text-xs text-slate-400 hover:text-white px-2 py-1.5 rounded-lg hover:bg-slate-700 transition-colors"
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 lg:ml-auto lg:flex lg:w-auto lg:grid-cols-none">
+          <select
+            value={filterPriority}
+            onChange={e => setFilterPriority(e.target.value as TaskPriority | 'all')}
+            className={`rounded-lg border px-3 py-2 text-sm focus:outline-none transition-colors ${filterPriority !== 'all' ? 'border-indigo-500 bg-slate-800 text-indigo-300' : 'border-slate-700 bg-slate-800 text-slate-400'}`}
           >
-            <X className="w-3 h-3" /> Clear filters
-          </button>
-        )}
+            <option value="all">All Priority</option>
+            {PRIORITY_OPTIONS.map(({ value, label }) => (
+              <option key={value} value={value}>{label}</option>
+            ))}
+          </select>
 
-        <span className="ml-auto text-xs text-slate-600 hidden lg:block">
+          <select
+            value={filterAssignee === 'all' ? '' : String(filterAssignee)}
+            onChange={e => setFilterAssignee(e.target.value ? Number(e.target.value) : 'all')}
+            className={`rounded-lg border px-3 py-2 text-sm focus:outline-none transition-colors ${filterAssignee !== 'all' ? 'border-indigo-500 bg-slate-800 text-indigo-300' : 'border-slate-700 bg-slate-800 text-slate-400'}`}
+          >
+            <option value="">All Members</option>
+            {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+          </select>
+
+          {hasFilter && (
+            <button
+              onClick={() => { setSearch(''); setFilterPriority('all'); setFilterAssignee('all'); }}
+              className="flex min-h-11 items-center justify-center gap-1 rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-300 transition-colors hover:bg-slate-700 hover:text-white"
+            >
+              <X className="w-3 h-3" /> Clear filters
+            </button>
+          )}
+        </div>
+
+        <span className="hidden text-xs text-slate-600 lg:ml-auto lg:block">
           Double-click column header to rename
         </span>
       </div>
 
       {/* ── Toast ── */}
       {toast && (
-        <div className={`mx-6 mt-3 text-sm rounded-lg px-4 py-2.5 border flex-shrink-0 ${toast.ok
+        <div className={`mx-4 mt-3 flex-shrink-0 rounded-lg border px-4 py-2.5 text-sm sm:mx-6 ${toast.ok
           ? 'bg-green-500/10 border-green-500/30 text-green-400'
           : 'bg-red-500/10 border-red-500/30 text-red-400'}`}>
           {toast.msg}
@@ -502,8 +521,8 @@ export default function ProjectDetailPage() {
       )}
 
       {/* ── Kanban board ── */}
-      <div className="flex-1 overflow-x-auto p-5 pb-6">
-        <div className="flex gap-3 h-full">
+      <div className="flex-1 overflow-x-auto px-4 pb-6 pt-4 sm:px-5">
+        <div className="flex h-full gap-3">
           {columns.map(col => {
             const colTasks    = tasksByStatus(col.key);
             const isCollapsed = collapsedCols.has(col.key);
@@ -517,7 +536,7 @@ export default function ProjectDetailPage() {
                   key={col.key}
                   onClick={() => toggleCollapse(col.key)}
                   title={`Expand "${label}"`}
-                  className={`flex-shrink-0 w-10 flex flex-col items-center gap-3 cursor-pointer rounded-xl border-2 ${col.border} bg-slate-800/30 hover:bg-slate-800/70 transition-colors py-3`}
+                  className={`flex h-fit w-10 flex-shrink-0 cursor-pointer flex-col items-center gap-3 rounded-xl border-2 py-3 transition-colors ${col.border} bg-slate-800/30 hover:bg-slate-800/70`}
                 >
                   <span className={`text-xs px-1.5 py-0.5 rounded-full font-bold ${col.badge}`}>
                     {colTasks.length}
@@ -536,7 +555,7 @@ export default function ProjectDetailPage() {
             return (
               <div
                 key={col.key}
-                className="flex flex-col w-64 flex-shrink-0"
+                className="flex w-[min(18rem,calc(100vw-3.75rem))] flex-shrink-0 flex-col sm:w-72"
                 onDragOver={e => { e.preventDefault(); setDragOverCol(col.key); }}
                 onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOverCol(null); }}
                 onDrop={() => handleDrop(col.key)}
@@ -646,10 +665,10 @@ export default function ProjectDetailPage() {
                   ) : (
                     <button
                       onClick={() => { setQuickAddCol(col.key); setQuickAddTitle(''); }}
-                      className="w-full flex items-center gap-1.5 px-3 py-1.5 text-slate-600 hover:text-slate-300 hover:bg-slate-800/50 rounded-lg text-xs transition-colors group"
+                      className="group flex w-full items-center gap-1.5 rounded-lg px-3 py-2 text-xs text-slate-500 transition-colors hover:bg-slate-800/50 hover:text-slate-300"
                     >
                       <Plus className="w-3.5 h-3.5" />
-                      <span className="opacity-0 group-hover:opacity-100 transition-opacity">Add task</span>
+                      <span className="opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100">Add task</span>
                     </button>
                   )}
                 </div>
@@ -658,7 +677,7 @@ export default function ProjectDetailPage() {
           })}
 
           {/* ── Add Status button ── */}
-          <div className="flex-shrink-0 w-64">
+          <div className="w-[min(18rem,calc(100vw-3.75rem))] flex-shrink-0 sm:w-72">
             {addingCol ? (
               <div className="bg-slate-800 border border-slate-600 rounded-xl p-3 space-y-2">
                 <input
@@ -796,13 +815,13 @@ function TaskCard({
         <GripVertical className="w-3.5 h-3.5 text-slate-600 group-hover:text-slate-400 mt-0.5 flex-shrink-0 cursor-grab active:cursor-grabbing" />
         <p className="text-white text-sm font-medium leading-snug flex-1 min-w-0">{task.title}</p>
         {canEdit && (
-          <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+          <div className="flex flex-shrink-0 gap-0.5 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100">
             <button onClick={onEdit}
-              className="p-1 rounded-md text-slate-500 hover:text-white hover:bg-slate-700 transition-colors">
+              className="rounded-md p-1.5 text-slate-500 transition-colors hover:bg-slate-700 hover:text-white">
               <Pencil className="w-3 h-3" />
             </button>
             <button onClick={onDelete}
-              className="p-1 rounded-md text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-colors">
+              className="rounded-md p-1.5 text-slate-500 transition-colors hover:bg-red-500/10 hover:text-red-400">
               <Trash2 className="w-3 h-3" />
             </button>
           </div>
@@ -823,7 +842,7 @@ function TaskCard({
       </div>
 
       {/* Footer */}
-      <div className="border-t border-slate-700/60 pt-2.5 flex items-center justify-between gap-2">
+      <div className="flex flex-col gap-2 border-t border-slate-700/60 pt-2.5 sm:flex-row sm:items-center sm:justify-between">
         {/* Assignee */}
         <div className="flex items-center gap-1.5 min-w-0">
           {task.assignee ? (
@@ -842,7 +861,7 @@ function TaskCard({
           )}
         </div>
 
-        <div className="flex items-center gap-1.5 flex-shrink-0">
+        <div className="flex items-center justify-between gap-1.5 sm:flex-shrink-0">
           {/* Due date */}
           <button
             onClick={e => { e.stopPropagation(); dateInputRef.current?.showPicker(); }}
@@ -924,7 +943,9 @@ function TaskDetailPanel({
     try {
       const res = await tasksApi.getHistory(taskId);
       setHistory((res.data || []).filter(e => e.action === 'updated'));
-    } catch {} finally {
+    } catch (error) {
+      console.error('Failed to load task history', error);
+    } finally {
       setHistLoading(false);
     }
   };
@@ -937,7 +958,7 @@ function TaskDetailPanel({
       prevIdRef.current = task.id;
     }
     if (!task) prevIdRef.current = null;
-  }, [task]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [task]);
 
   const fieldChange = async (payload: UpdateTaskRequest) => {
     if (!task) return;
@@ -965,9 +986,18 @@ function TaskDetailPanel({
   const dueDateStr  = task?.due_date ? String(task.due_date).substring(0, 10) : '';
 
   return (
-    <div className={`fixed top-0 right-0 h-full w-[440px] bg-slate-900 border-l border-slate-700/80 shadow-2xl z-40 flex flex-col transition-transform duration-300 ease-in-out ${task ? 'translate-x-0' : 'translate-x-full'}`}>
+    <>
       {task && (
-        <>
+        <button
+          type="button"
+          className="fixed inset-0 z-30 bg-black/60 backdrop-blur-sm"
+          onClick={onClose}
+          aria-label="Close task details"
+        />
+      )}
+      <div className={`fixed top-0 right-0 z-40 flex h-full w-full max-w-full flex-col border-l border-slate-700/80 bg-slate-900 shadow-2xl transition-transform duration-300 ease-in-out sm:w-[440px] ${task ? 'translate-x-0' : 'translate-x-full'}`}>
+        {task && (
+          <>
           {/* ── Header ── */}
           <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-700 flex-shrink-0">
             <div className="flex items-center gap-2">
@@ -1008,7 +1038,7 @@ function TaskDetailPanel({
               </div>
 
               {/* Meta grid */}
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
                   <label className={panelLbl}>Status</label>
                   <select
@@ -1028,9 +1058,9 @@ function TaskDetailPanel({
                     onChange={e => fieldChange({ priority: e.target.value as TaskPriority })}
                     className={panelSel}
                   >
-                    <option value="high">🔴 High</option>
-                    <option value="medium">🟡 Medium</option>
-                    <option value="low">⚪ Low</option>
+                    {PRIORITY_OPTIONS.map(({ value, label }) => (
+                      <option key={value} value={value}>{label}</option>
+                    ))}
                   </select>
                 </div>
                 <div>
@@ -1166,9 +1196,10 @@ function TaskDetailPanel({
               </div>
             </div>
           </div>
-        </>
-      )}
-    </div>
+          </>
+        )}
+      </div>
+    </>
   );
 }
 
@@ -1192,7 +1223,7 @@ function TaskFormModal({
 }) {
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div className="bg-slate-800 border border-slate-700 rounded-2xl p-6 w-full max-w-lg shadow-2xl"
+      <div className="max-h-[calc(100vh-2rem)] w-full max-w-lg overflow-y-auto rounded-2xl border border-slate-700 bg-slate-800 p-5 shadow-2xl sm:p-6"
         onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-5">
           <h2 className="text-white font-semibold">{title}</h2>
@@ -1218,7 +1249,7 @@ function TaskFormModal({
               className={`${inp} resize-none`} />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
               <label className={lbl}><UserIcon className="w-3 h-3 inline mr-1" />Assign to</label>
               <select value={form.assignee_id ?? ''}
@@ -1252,14 +1283,14 @@ function TaskFormModal({
               <select value={form.priority}
                 onChange={e => onChange({ ...form, priority: e.target.value as TaskPriority })}
                 className={inp}>
-                <option value="high">🔴 High</option>
-                <option value="medium">🟡 Medium</option>
-                <option value="low">⚪ Low</option>
+                {PRIORITY_OPTIONS.map(({ value, label }) => (
+                  <option key={value} value={value}>{label}</option>
+                ))}
               </select>
             </div>
           </div>
 
-          <div className="flex gap-2 pt-1">
+          <div className="flex flex-col gap-2 pt-1 sm:flex-row">
             <button type="button" onClick={onClose}
               className="flex-1 py-2.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300 text-sm transition-colors">
               Cancel
@@ -1275,7 +1306,7 @@ function TaskFormModal({
   );
 }
 
-const inp = "w-full bg-slate-900 border border-slate-600 text-white placeholder-slate-500 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-500 transition-colors";
+const inp = "w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2.5 text-sm text-white placeholder-slate-500 transition-colors focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20";
 const lbl = "block text-xs font-medium text-slate-400 mb-1.5";
 
 // ─── Members Panel ────────────────────────────────────────────────────────────
@@ -1312,7 +1343,7 @@ function MembersPanel({
 
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div className="bg-slate-800 border border-slate-700 rounded-2xl p-6 w-full max-w-md shadow-2xl" onClick={e => e.stopPropagation()}>
+      <div className="max-h-[calc(100vh-2rem)] w-full max-w-md overflow-y-auto rounded-2xl border border-slate-700 bg-slate-800 p-5 shadow-2xl sm:p-6" onClick={e => e.stopPropagation()}>
         {/* Header */}
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
@@ -1327,11 +1358,11 @@ function MembersPanel({
 
         {/* Add member (only for owners/admins) */}
         {canManage && nonMembers.length > 0 && (
-          <div className="mb-4 flex gap-2">
+          <div className="mb-4 flex flex-col gap-2 sm:flex-row">
             <select
               value={selectedUserId}
               onChange={e => setSelectedUserId(e.target.value ? Number(e.target.value) : '')}
-              className="flex-1 bg-slate-900 border border-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-500"
+              className="flex-1 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2.5 text-sm text-white focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
             >
               <option value="">Select user to add…</option>
               {nonMembers.map(u => (
@@ -1341,7 +1372,7 @@ function MembersPanel({
             <button
               onClick={handleAdd}
               disabled={!selectedUserId || adding}
-              className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white px-3 py-2 rounded-lg text-sm font-medium transition-colors"
+              className="flex min-h-11 items-center justify-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500 disabled:opacity-50"
             >
               <Plus className="w-4 h-4" />
               {adding ? 'Adding…' : 'Add'}
@@ -1352,8 +1383,8 @@ function MembersPanel({
         {/* Member list */}
         <div className="space-y-2 max-h-80 overflow-y-auto">
           {members.map(m => (
-            <div key={m.id} className="flex items-center justify-between bg-slate-900/50 rounded-xl px-3 py-2.5">
-              <div className="flex items-center gap-3 min-w-0">
+            <div key={m.id} className="flex flex-col gap-3 rounded-xl bg-slate-900/50 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex min-w-0 items-center gap-3">
                 <div className="w-8 h-8 rounded-full bg-indigo-600/30 flex items-center justify-center flex-shrink-0">
                   <span className="text-indigo-300 text-sm font-bold">
                     {(m.user?.name ?? '?').charAt(0).toUpperCase()}
@@ -1364,7 +1395,7 @@ function MembersPanel({
                   <p className="text-slate-500 text-xs truncate">{m.user?.email ?? ''}</p>
                 </div>
               </div>
-              <div className="flex items-center gap-2 flex-shrink-0 ml-2">
+              <div className="ml-0 flex items-center gap-2 sm:ml-2 sm:flex-shrink-0">
                 <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
                   m.role === 'owner'
                     ? 'bg-amber-500/20 text-amber-300'

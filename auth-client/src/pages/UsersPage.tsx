@@ -6,7 +6,7 @@ import {
 import { usersApi } from '../api/users';
 import { authApi } from '../api/auth';
 import type { User, UpdateUserRequest, RegisterRequest } from '../types';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../context/useAuth';
 
 export default function UsersPage() {
   const { user: currentUser } = useAuth();
@@ -91,10 +91,10 @@ export default function UsersPage() {
   const isAdmin = currentUser?.role === 'admin';
 
   return (
-    <div className="p-6 max-w-5xl mx-auto">
+    <div className="mx-auto w-full max-w-6xl p-4 sm:p-6">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-3">
+      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-start gap-3">
           <div className="w-10 h-10 rounded-xl bg-indigo-600 flex items-center justify-center">
             <Users className="w-5 h-5 text-white" />
           </div>
@@ -103,14 +103,14 @@ export default function UsersPage() {
             <p className="text-slate-400 text-sm">{users.length} total users</p>
           </div>
         </div>
-        <div className="flex gap-2">
-          <button onClick={fetchUsers} className="p-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors">
+        <div className="flex w-full gap-2 sm:w-auto">
+          <button onClick={fetchUsers} className="flex min-h-11 flex-1 items-center justify-center rounded-xl bg-slate-700 px-3 text-slate-300 transition-colors hover:bg-slate-600 sm:flex-none" aria-label="Refresh users">
             <RefreshCw className="w-4 h-4" />
           </button>
           {isAdmin && (
             <button
               onClick={() => setShowAdd(true)}
-              className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+              className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-indigo-500 sm:flex-none"
             >
               <Plus className="w-4 h-4" /> Add User
             </button>
@@ -138,12 +138,82 @@ export default function UsersPage() {
           placeholder="Search by name or email..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="w-full bg-slate-800 border border-slate-700 text-white placeholder-slate-500 rounded-lg pl-9 pr-4 py-2.5 text-sm focus:outline-none focus:border-indigo-500"
+          className="w-full rounded-xl border border-slate-700 bg-slate-800 py-3 pl-10 pr-4 text-sm text-white placeholder-slate-500 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
         />
       </div>
 
+      <div className="space-y-3 md:hidden">
+        {loading ? (
+          <div className="rounded-2xl border border-slate-700 bg-slate-800 px-4 py-10 text-center text-slate-500">Loading...</div>
+        ) : filtered.length === 0 ? (
+          <div className="rounded-2xl border border-slate-700 bg-slate-800 px-4 py-10 text-center text-slate-500">No users found</div>
+        ) : (
+          filtered.map((u) => (
+            <div key={u.id} className="rounded-2xl border border-slate-700 bg-slate-800 p-4">
+              <div className="mb-4 flex items-start justify-between gap-3">
+                <div className="flex min-w-0 items-center gap-3">
+                  <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-indigo-600/30">
+                    <span className="text-sm font-medium text-indigo-300">{u.name.charAt(0).toUpperCase()}</span>
+                  </div>
+                  <div className="min-w-0">
+                    <div className="truncate font-medium text-white">{u.name}</div>
+                    <div className="truncate text-xs text-slate-400">{u.email}</div>
+                  </div>
+                </div>
+                <div className="flex gap-1">
+                  <button
+                    onClick={() => openEdit(u)}
+                    className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-slate-700 hover:text-white"
+                    aria-label={`Edit ${u.name}`}
+                  >
+                    <Pencil className="w-4 h-4" />
+                  </button>
+                  {isAdmin && u.id !== currentUser?.id && (
+                    <button
+                      onClick={() => handleDelete(u.id, u.name)}
+                      className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-red-500/10 hover:text-red-400"
+                      aria-label={`Delete ${u.name}`}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div>
+                  <p className="mb-1 text-xs uppercase tracking-wide text-slate-500">Role</p>
+                  <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${
+                    u.role === 'admin'
+                      ? 'border border-purple-500/30 bg-purple-500/15 text-purple-300'
+                      : 'border border-slate-600 bg-slate-700 text-slate-300'
+                  }`}>
+                    {u.role === 'admin' ? <Shield className="w-3 h-3" /> : <UserIcon className="w-3 h-3" />}
+                    {u.role}
+                  </span>
+                </div>
+                <div>
+                  <p className="mb-1 text-xs uppercase tracking-wide text-slate-500">Status</p>
+                  <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${
+                    u.is_active
+                      ? 'border border-green-500/30 bg-green-500/15 text-green-400'
+                      : 'border border-red-500/30 bg-red-500/15 text-red-400'
+                  }`}>
+                    {u.is_active ? <Check className="w-3 h-3" /> : <X className="w-3 h-3" />}
+                    {u.is_active ? 'Active' : 'Inactive'}
+                  </span>
+                </div>
+                <div className="col-span-2">
+                  <p className="mb-1 text-xs uppercase tracking-wide text-slate-500">Created</p>
+                  <p className="text-sm text-slate-300">{new Date(u.created_at).toLocaleDateString('id-ID')}</p>
+                </div>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
       {/* Table */}
-      <div className="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden">
+      <div className="hidden overflow-hidden rounded-xl border border-slate-700 bg-slate-800 md:block">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-slate-700 text-slate-400 text-xs uppercase tracking-wider">
@@ -242,7 +312,7 @@ export default function UsersPage() {
                 <option value="admin">Admin</option>
               </select>
             </Field>
-            <div className="flex gap-2 pt-2">
+            <div className="flex flex-col gap-2 pt-2 sm:flex-row">
               <button type="button" onClick={() => setShowAdd(false)} className="flex-1 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300 text-sm transition-colors">Cancel</button>
               <button type="submit" className="flex-1 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium transition-colors">Add User</button>
             </div>
@@ -275,7 +345,7 @@ export default function UsersPage() {
                 <option value="false">Inactive</option>
               </select>
             </Field>
-            <div className="flex gap-2 pt-2">
+            <div className="flex flex-col gap-2 pt-2 sm:flex-row">
               <button type="button" onClick={() => setEditingUser(null)} className="flex-1 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300 text-sm transition-colors">Cancel</button>
               <button type="submit" className="flex-1 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium transition-colors">Save Changes</button>
             </div>
@@ -287,7 +357,7 @@ export default function UsersPage() {
 }
 
 // Shared sub-components
-const inputCls = "w-full bg-slate-900 border border-slate-600 text-white placeholder-slate-500 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-500";
+const inputCls = "w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white placeholder-slate-500 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20";
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -301,10 +371,10 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div className="bg-slate-800 border border-slate-700 rounded-2xl p-6 w-full max-w-md shadow-2xl" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between mb-5">
+      <div className="max-h-[calc(100vh-2rem)] w-full max-w-md overflow-y-auto rounded-2xl border border-slate-700 bg-slate-800 p-5 shadow-2xl sm:p-6" onClick={(e) => e.stopPropagation()}>
+        <div className="mb-5 flex items-center justify-between gap-3">
           <h2 className="text-white font-semibold">{title}</h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-white"><X className="w-5 h-5" /></button>
+          <button onClick={onClose} className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-slate-700 hover:text-white" aria-label="Close modal"><X className="w-5 h-5" /></button>
         </div>
         {children}
       </div>

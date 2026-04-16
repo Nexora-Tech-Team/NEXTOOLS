@@ -5,7 +5,7 @@ import {
   ArrowRight, RefreshCw, TrendingUp, Users, ShieldAlert,
   LayoutDashboard, Flame, Activity,
 } from 'lucide-react';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../context/useAuth';
 import { projectsApi } from '../api/projects';
 import { tasksApi } from '../api/tasks';
 import { usersApi } from '../api/users';
@@ -105,7 +105,11 @@ export default function DashboardPage() {
   const [selectedId,  setSelectedId]  = useState<number | null>(null); // null = semua project
 
   const load = useCallback(async (isRefresh = false) => {
-    isRefresh ? setRefreshing(true) : setLoading(true);
+    if (isRefresh) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
     try {
       const [{ data: projects }, { data: allUsers }] = await Promise.all([
         projectsApi.getAll(),
@@ -122,7 +126,9 @@ export default function DashboardPage() {
       setLastRefresh(new Date());
       // Jika project yang dipilih dihapus, reset ke semua
       setSelectedId(prev => prev && !projects.find(p => p.id === prev) ? null : prev);
-    } catch {}
+    } catch (error) {
+      console.error('Failed to load dashboard data', error);
+    }
     finally { setLoading(false); setRefreshing(false); }
   }, []);
 
@@ -166,7 +172,7 @@ export default function DashboardPage() {
 
   return (
     <div className="flex-1 overflow-y-auto bg-slate-950 text-white">
-      <div className="max-w-7xl mx-auto p-6 space-y-6">
+      <div className="mx-auto max-w-7xl space-y-6 p-4 sm:p-6">
 
         {/* ── Header ── */}
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -183,47 +189,50 @@ export default function DashboardPage() {
               </span>
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-col gap-2 sm:items-end">
             {/* Project selector */}
-            <div className="flex items-center gap-1.5 bg-slate-900 border border-slate-700 rounded-xl p-1">
-              <button
-                onClick={() => setSelectedId(null)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                  selectedId === null
-                    ? 'bg-indigo-600 text-white'
-                    : 'text-slate-400 hover:text-white hover:bg-slate-800'
-                }`}
-              >
-                Semua
-              </button>
-              {stats.map(s => (
+            <div className="max-w-full overflow-x-auto rounded-xl border border-slate-700 bg-slate-900 p-1">
+              <div className="flex min-w-max items-center gap-1.5">
                 <button
-                  key={s.project.id}
-                  onClick={() => setSelectedId(s.project.id)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors max-w-[140px] truncate ${
-                    selectedId === s.project.id
+                  onClick={() => setSelectedId(null)}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                    selectedId === null
                       ? 'bg-indigo-600 text-white'
                       : 'text-slate-400 hover:text-white hover:bg-slate-800'
                   }`}
-                  title={s.project.name}
                 >
-                  {s.project.name}
+                  Semua
                 </button>
-              ))}
+                {stats.map(s => (
+                  <button
+                    key={s.project.id}
+                    onClick={() => setSelectedId(s.project.id)}
+                    className={`max-w-[140px] truncate rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                      selectedId === s.project.id
+                        ? 'bg-indigo-600 text-white'
+                        : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                    }`}
+                    title={s.project.name}
+                  >
+                    {s.project.name}
+                  </button>
+                ))}
+              </div>
             </div>
             <button
               onClick={() => load(true)} disabled={refreshing}
-              className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-white px-3 py-1.5 rounded-lg border border-slate-700 hover:border-slate-500 transition-colors"
+              className="flex min-h-11 items-center justify-center gap-1.5 rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-400 transition-colors hover:border-slate-500 hover:text-white sm:self-end"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+              <span>Refresh</span>
             </button>
           </div>
         </div>
 
         {/* ── Project context banner (saat project dipilih) ── */}
         {selectedProj && (
-          <div className="flex items-center justify-between bg-indigo-600/10 border border-indigo-500/20 rounded-xl px-4 py-3">
-            <div className="flex items-center gap-3">
+          <div className="flex flex-col gap-3 rounded-xl border border-indigo-500/20 bg-indigo-600/10 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-start gap-3">
               <FolderKanban className="w-4 h-4 text-indigo-400 flex-shrink-0" />
               <div>
                 <p className="text-indigo-200 font-semibold text-sm">{selectedProj.name}</p>
@@ -234,7 +243,7 @@ export default function DashboardPage() {
             </div>
             <button
               onClick={() => navigate(`/projects/${selectedProj.id}`)}
-              className="flex items-center gap-1 text-xs text-indigo-400 hover:text-indigo-200 transition-colors border border-indigo-500/30 px-2.5 py-1 rounded-lg"
+              className="flex min-h-10 items-center justify-center gap-1 rounded-lg border border-indigo-500/30 px-3 py-2 text-xs text-indigo-400 transition-colors hover:text-indigo-200 sm:w-auto"
             >
               Buka Kanban <ArrowRight className="w-3 h-3" />
             </button>
@@ -242,7 +251,7 @@ export default function DashboardPage() {
         )}
 
         {/* ── Metrics Bar ── */}
-        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
           <MetricCard
             icon={<FolderKanban className="w-5 h-5 text-indigo-400" />}
             iconBg="bg-indigo-500/15"
@@ -312,10 +321,10 @@ export default function DashboardPage() {
                   return (
                     <div key={project.id} className="border border-slate-800 rounded-xl p-4 hover:border-slate-700 transition-colors">
                       {/* Project header */}
-                      <div className="flex items-start justify-between mb-3">
-                        <div>
+                      <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="min-w-0">
                           <div className="flex items-center gap-2">
-                            <span className="text-white font-semibold">{project.name}</span>
+                            <span className="truncate text-white font-semibold">{project.name}</span>
                             <span className={`text-xs font-bold px-2 py-0.5 rounded-full bg-slate-800 ${health.color}`}>
                               {health.label}
                             </span>
@@ -331,7 +340,7 @@ export default function DashboardPage() {
                         </div>
                         <button
                           onClick={() => navigate(`/projects/${project.id}`)}
-                          className="flex items-center gap-1 text-xs text-indigo-400 hover:text-indigo-300 transition-colors flex-shrink-0 ml-3"
+                          className="flex min-h-10 items-center gap-1 self-start rounded-lg border border-slate-800 px-3 py-2 text-xs text-indigo-400 transition-colors hover:border-slate-700 hover:text-indigo-300 sm:ml-3 sm:self-center"
                         >
                           Buka Board <ArrowRight className="w-3 h-3" />
                         </button>
@@ -360,13 +369,16 @@ export default function DashboardPage() {
                             const barPct = (count / total) * 100;
                             const label = getProjectStatusLabel(project.id, key);
                             return (
-                              <div key={key} className="flex items-center gap-2.5 text-xs">
-                                <span className={`w-24 flex-shrink-0 ${cfg.text}`}>{label}</span>
+                              <div key={key} className="flex flex-col gap-1.5 text-xs sm:flex-row sm:items-center sm:gap-2.5">
+                                <div className="flex items-center justify-between gap-2 sm:block sm:w-24 sm:flex-shrink-0">
+                                  <span className={cfg.text}>{label}</span>
+                                  <span className="text-slate-600 sm:hidden">{count} · {Math.round(barPct)}%</span>
+                                </div>
                                 <div className="flex-1 h-1.5 bg-slate-800 rounded-full overflow-hidden">
                                   <div className={`h-full rounded-full ${cfg.bar}`} style={{ width: `${barPct}%` }} />
                                 </div>
-                                <span className="text-slate-400 w-4 text-right flex-shrink-0">{count}</span>
-                                <span className="text-slate-600 w-8 text-right flex-shrink-0">
+                                <span className="hidden w-4 flex-shrink-0 text-right text-slate-400 sm:block">{count}</span>
+                                <span className="hidden w-8 flex-shrink-0 text-right text-slate-600 sm:block">
                                   {Math.round(barPct)}%
                                 </span>
                               </div>
@@ -494,10 +506,10 @@ export default function DashboardPage() {
                       const pct   = Math.round((count / totalTasks) * 100);
                       const label = stats.length > 0 ? getProjectStatusLabel(stats[0].project.id, key) : cfg.label;
                       return (
-                        <div key={key} className="flex items-center gap-3">
+                        <div key={key} className="flex flex-col gap-2 rounded-xl border border-slate-800/80 px-3 py-2 sm:flex-row sm:items-center sm:border-0 sm:px-0 sm:py-0">
                           <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${cfg.bar}`} />
                           <span className={`text-sm flex-1 ${cfg.text}`}>{label}</span>
-                          <div className="flex items-center gap-3">
+                          <div className="flex items-center gap-3 sm:ml-auto">
                             <div className="w-24 h-1.5 bg-slate-800 rounded-full overflow-hidden">
                               <div className={`h-full rounded-full ${cfg.bar}`} style={{ width: `${pct}%` }} />
                             </div>
@@ -574,8 +586,53 @@ export default function DashboardPage() {
               badge={overdueTasks.length + dueSoonTasks.length}
             />
 
-            <div className="mt-4 overflow-x-auto">
-              <table className="w-full text-sm">
+            <div className="space-y-3 md:hidden">
+              {[...overdueTasks, ...dueSoonTasks].map(task => {
+                const projStat = stats.find(s => s.tasks.find(t => t.id === task.id));
+                const over = isOverdue(task);
+                const cfg = getStatusCfg(task.status);
+                const prioCfg = PRIO_CFG[task.priority as keyof typeof PRIO_CFG] ?? PRIO_CFG.medium;
+                return (
+                  <div key={task.id} className="rounded-xl border border-slate-800 bg-slate-900/70 p-4">
+                    <div className="mb-3 flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate font-medium text-white">{task.title}</p>
+                        <button
+                          onClick={() => navigate(`/projects/${task.project_id}`)}
+                          className="mt-1 text-left text-sm text-indigo-400 transition-colors hover:text-indigo-300"
+                        >
+                          {projStat?.project.name ?? '—'}
+                        </button>
+                      </div>
+                      <span className={`rounded-full px-2 py-1 text-xs font-medium ${over ? 'bg-red-500/10 text-red-400' : 'bg-yellow-500/10 text-yellow-300'}`}>
+                        {over ? 'Overdue' : 'Due soon'}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                      <div>
+                        <p className="mb-1 text-xs uppercase tracking-wide text-slate-500">Assignee</p>
+                        <p className="text-slate-300">{task.assignee?.name ?? 'Unassigned'}</p>
+                      </div>
+                      <div>
+                        <p className="mb-1 text-xs uppercase tracking-wide text-slate-500">Due date</p>
+                        <p className={over ? 'font-medium text-red-400' : 'font-medium text-yellow-300'}>{fmtDate(task.due_date)}</p>
+                      </div>
+                      <div>
+                        <p className="mb-1 text-xs uppercase tracking-wide text-slate-500">Status</p>
+                        <p className={`text-sm ${cfg.text}`}>{cfg.label}</p>
+                      </div>
+                      <div>
+                        <p className="mb-1 text-xs uppercase tracking-wide text-slate-500">Priority</p>
+                        <p className={`text-sm ${prioCfg.text}`}>{prioCfg.label}</p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="mt-4 hidden overflow-x-auto md:block">
+              <table className="w-full min-w-[760px] text-sm">
                 <thead>
                   <tr className="text-xs text-slate-500 uppercase tracking-wider border-b border-slate-800">
                     <th className="text-left pb-2 font-medium">Task</th>
@@ -662,8 +719,56 @@ export default function DashboardPage() {
           {allTasks.length === 0 ? (
             <EmptyState label="Belum ada task" action="Mulai dari Projects →" onClick={() => navigate('/projects')} />
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+            <>
+            <div className="space-y-3 md:hidden">
+              {allTasks.map(task => {
+                const projStat = stats.find(s => s.tasks.find(t => t.id === task.id));
+                const cfg = getStatusCfg(task.status);
+                const prioCfg = PRIO_CFG[task.priority as keyof typeof PRIO_CFG] ?? PRIO_CFG.medium;
+                const over = isOverdue(task);
+                const soon = isDueSoon(task);
+                return (
+                  <div key={task.id} className="rounded-xl border border-slate-800 bg-slate-900/70 p-4">
+                    <div className="mb-3">
+                      <p className="font-medium text-white">{task.title}</p>
+                      {task.description && <p className="mt-1 text-sm text-slate-500">{task.description}</p>}
+                    </div>
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                      <div>
+                        <p className="mb-1 text-xs uppercase tracking-wide text-slate-500">Project</p>
+                        <button
+                          onClick={() => navigate(`/projects/${task.project_id}`)}
+                          className="text-left text-slate-300 transition-colors hover:text-indigo-400"
+                        >
+                          {projStat?.project.name ?? '—'}
+                        </button>
+                      </div>
+                      <div>
+                        <p className="mb-1 text-xs uppercase tracking-wide text-slate-500">Assignee</p>
+                        <p className="text-slate-300">{task.assignee?.name ?? 'Unassigned'}</p>
+                      </div>
+                      <div>
+                        <p className="mb-1 text-xs uppercase tracking-wide text-slate-500">Status</p>
+                        <p className={cfg.text}>{getProjectStatusLabel(task.project_id, task.status)}</p>
+                      </div>
+                      <div>
+                        <p className="mb-1 text-xs uppercase tracking-wide text-slate-500">Priority</p>
+                        <p className={prioCfg.text}>{prioCfg.label}</p>
+                      </div>
+                      <div className="col-span-2">
+                        <p className="mb-1 text-xs uppercase tracking-wide text-slate-500">Due date</p>
+                        <p className={task.due_date ? (over ? 'font-medium text-red-400' : soon ? 'font-medium text-yellow-300' : 'text-slate-300') : 'text-slate-600'}>
+                          {task.due_date ? fmtDate(task.due_date) : '—'}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="hidden overflow-x-auto md:block">
+              <table className="w-full min-w-[720px] text-sm">
                 <thead>
                   <tr className="text-xs text-slate-500 uppercase tracking-wider border-b border-slate-800">
                     <th className="text-left pb-2 font-medium">Task</th>
@@ -728,7 +833,7 @@ export default function DashboardPage() {
                           {task.due_date ? (
                             <span className={`text-xs font-medium ${over ? 'text-red-400' : soon ? 'text-yellow-400' : 'text-slate-400'}`}>
                               {fmtDate(task.due_date)}
-                              {over && ' ⚠'}
+                              {over && ' (Overdue)'}
                             </span>
                           ) : (
                             <span className="text-slate-700 text-xs">—</span>
@@ -740,6 +845,7 @@ export default function DashboardPage() {
                 </tbody>
               </table>
             </div>
+            </>
           )}
         </div>
 
