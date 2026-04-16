@@ -1,0 +1,18 @@
+# Go
+auth-service/auth-service.exe
+auth-service/auth-service.exe~
+auth-service/*.exe
+auth-service/.env
+
+# Node
+auth-client/node_modules/
+auth-client/dist/
+devtrack/node_modules/
+devtrack/.next/
+
+# Logs
+*.log
+nohup.out
+
+# OS
+.DS_Store
