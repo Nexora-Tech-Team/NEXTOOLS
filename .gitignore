@@ -1,19 +1,84 @@
-# Go
-auth-service/auth-service.exe
-auth-service/auth-service.exe~
-auth-service/*.exe
-auth-service/.env
+# =========================
+# GLOBAL ENV (WAJIB)
+# =========================
+.env
+.env.*
+*.env
 
-# Node
-auth-client/node_modules/
+# =========================
+# GO (auth-service)
+# =========================
+auth-service/*.exe
+auth-service/*.exe~
+auth-service/*.dll
+auth-service/*.so
+auth-service/*.dylib
+auth-service/bin/
+auth-service/build/
+auth-service/tmp/
+
+# =========================
+# NODE (auth-client, devtrack)
+# =========================
+node_modules/
+*/node_modules/
+
+# Build output
+dist/
+build/
+.next/
+out/
+coverage/
+
+# Specific apps
 auth-client/dist/
-devtrack/node_modules/
+auth-client/.next/
 devtrack/.next/
 
-# Logs
+# =========================
+# LOGS
+# =========================
 *.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
 nohup.out
 
-# OS
+# =========================
+# DOCKER
+# =========================
+docker-data/
+*.pid
+*.sock
+
+# =========================
+# IDE / EDITOR
+# =========================
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# =========================
+# OS FILES
+# =========================
 .DS_Store
-*.exe~
+Thumbs.db
+
+# =========================
+# TEMP FILES
+# =========================
+tmp/
+temp/
+*.tmp
+*.bak
+*.old
+
+# =========================
+# TEST / COVERAGE
+# =========================
+coverage/
+*.cover
+*.out
