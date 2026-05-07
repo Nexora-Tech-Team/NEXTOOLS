@@ -10,7 +10,7 @@ jobs:
   deploy:
     name: Deploy to VPS
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     steps:
       - name: Deploy via SSH
@@ -21,20 +21,58 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.PORT }}
           script_stop: true
+          command_timeout: 30m
           script: |
             set -e
 
             APP_DIR="/root/nexora-node/apps/nextools"
 
-            echo "📦 Opening app directory..."
+            echo "====================================="
+            echo "🚀 STARTING DEPLOYMENT"
+            echo "====================================="
+
+            echo ""
+            echo "📂 Entering application directory..."
             cd $APP_DIR
 
-            echo "📥 Pull latest source..."
+            echo ""
+            echo "📥 Pulling latest source from GitHub..."
             git fetch origin main
             git reset --hard origin/main
 
-            echo "🔨 Build frontend..."
+            echo ""
+            echo "🖥️ System memory info:"
+            free -h
+
+            echo ""
+            echo "💾 Checking swap..."
+
+            if ! swapon --show | grep -q "/swapfile"; then
+              echo "⚠️ No swap detected. Creating 2GB swap..."
+
+              fallocate -l 2G /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=2048
+
+              chmod 600 /swapfile
+              mkswap /swapfile
+              swapon /swapfile
+
+              echo "/swapfile none swap sw 0 0" >> /etc/fstab
+
+              echo "✅ Swap created successfully"
+            else
+              echo "✅ Swap already exists"
+            fi
+
+            echo ""
+            echo "🖥️ Updated memory info:"
+            free -h
+
+            echo ""
+            echo "🔨 Building frontend..."
             cd $APP_DIR/auth-client
+
+            echo ""
+            echo "📦 Installing dependencies..."
 
             if [ -f package-lock.json ]; then
               npm ci --prefer-offline
@@ -42,18 +80,33 @@ jobs:
               npm install
             fi
 
-            npm run build
+            echo ""
+            echo "⚙️ Setting Node memory..."
+            export NODE_OPTIONS="--max-old-space-size=2048"
 
-            echo "🐳 Rebuild docker containers..."
+            echo ""
+            echo "🏗️ Running production build..."
+            npm run build -- --debug
+
+            echo ""
+            echo "🐳 Rebuilding Docker containers..."
             cd $APP_DIR
 
             docker compose up -d --build
 
-            echo "🧹 Cleanup old images..."
+            echo ""
+            echo "🧹 Cleaning old Docker images..."
             docker image prune -f
 
-            echo "✅ Deploy complete!"
+            echo ""
+            echo "📦 Running containers:"
+            docker ps
+
+            echo ""
+            echo "====================================="
+            echo "✅ DEPLOY SUCCESS"
             echo "🌐 https://nextools.nexoratech.co"
+            echo "====================================="
 
       - name: Notify success
         if: success()
