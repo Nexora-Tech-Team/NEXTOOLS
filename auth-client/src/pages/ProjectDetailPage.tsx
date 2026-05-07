@@ -236,7 +236,7 @@ export default function ProjectDetailPage() {
           custom_cols: cols as CustomColumn[],
         });
       } catch {
-        showToast(\1, 'error');
+        showToast('Gagal menyimpan konfigurasi kolom', 'error');
       }
     },
     [projectId],
@@ -284,7 +284,7 @@ export default function ProjectDetailPage() {
   const handleDeleteColumn = (key: string) => {
     const count = tasks.filter(t => t.status === key).length;
     if (count > 0) {
-      showToast(\1, 'error');
+      showToast('Pindahkan atau hapus task di kolom ini dulu', 'error');
       return;
     }
     const next = customCols.filter(c => c.key !== key);
@@ -344,7 +344,7 @@ export default function ProjectDetailPage() {
       showToast('Task deleted');
       if (selectedTask?.id === task.id) setSelectedTask(null);
       refreshTasks();
-    } catch { showToast(\1, 'error'); }
+    } catch { showToast('Failed to delete task', 'error'); }
   };
 
   const handleStatusChange = (task: Task, status: TaskStatus) => {
@@ -360,7 +360,7 @@ export default function ProjectDetailPage() {
         await tasksApi.update(task.id, { status });
       } catch {
         setTasks(prev => prev.map(t => t.id === task.id ? { ...t, status: task.status } : t));
-        showToast(\1, 'error');
+        showToast('Failed to update status', 'error');
       }
     }, 600);
     statusTimersRef.current.set(task.id, timer);
@@ -371,7 +371,7 @@ export default function ProjectDetailPage() {
     setTasks(prev => prev.map(t => t.id === task.id ? { ...t, due_date: due_date || undefined } : t));
     try {
       await tasksApi.update(task.id, { due_date });
-    } catch { refreshTasks(); showToast(\1, 'error'); }
+    } catch { refreshTasks(); showToast('Failed to update due date', 'error'); }
   };
 
   const openEdit = (task: Task) => {
@@ -391,7 +391,7 @@ export default function ProjectDetailPage() {
       const res = await membersApi.getByProject(projectId);
       setMembers(res.data || []);
       showToast('Member added!');
-    } catch { showToast(\1, 'error'); }
+    } catch { showToast('Failed to add member', 'error'); }
   };
 
   const handleRemoveMember = async (userId: number) => {
@@ -401,7 +401,7 @@ export default function ProjectDetailPage() {
       const res = await membersApi.getByProject(projectId);
       setMembers(res.data || []);
       showToast('Member removed');
-    } catch { showToast(\1, 'error'); }
+    } catch { showToast('Failed to remove member', 'error'); }
   };
 
   // ── Quick add ──────────────────────────────────────────────────────────────
@@ -413,7 +413,7 @@ export default function ProjectDetailPage() {
       setQuickAddTitle('');
       setQuickAddCol(null);
       refreshTasks();
-    } catch { showToast(\1, 'error'); }
+    } catch { showToast('Failed to create task', 'error'); }
   };
 
   // ── Drag & drop ────────────────────────────────────────────────────────────
@@ -1127,7 +1127,7 @@ function TaskDetailPanel({
       await tasksApi.clockIn(task.id, manualTime);
       await loadTimeLogs(task.id);
       showToast('Clock in berhasil!');
-    } catch { showToast(\1, 'error'); }
+    } catch { showToast('Gagal clock in', 'error'); }
   };
 
   const handleClockOut = async (manualTime?: string) => {
@@ -1136,7 +1136,7 @@ function TaskDetailPanel({
       await tasksApi.clockOut(task.id, manualTime);
       await loadTimeLogs(task.id);
       showToast('Clock out berhasil!');
-    } catch { showToast(\1, 'error'); }
+    } catch { showToast('Gagal clock out', 'error'); }
   };
 
   const handleManualTimeLog = async (clockIn: string, clockOut: string) => {
@@ -1145,7 +1145,7 @@ function TaskDetailPanel({
       await tasksApi.createManualTimeLog(task.id, clockIn, clockOut);
       await loadTimeLogs(task.id);
       showToast('Time log ditambahkan!');
-    } catch { showToast(\1, 'error'); }
+    } catch { showToast('Gagal tambah time log', 'error'); }
   };
 
   const handleDeleteTimeLog = async (logId: number) => {
@@ -1154,7 +1154,7 @@ function TaskDetailPanel({
       await tasksApi.deleteTimeLog(task.id, logId);
       await loadTimeLogs(task.id);
       showToast('Time log dihapus');
-    } catch { showToast(\1, 'error'); }
+    } catch { showToast('Gagal hapus time log', 'error'); }
   };
 
   const handleAddSubtask = async () => {
@@ -1165,7 +1165,7 @@ function TaskDetailPanel({
       setNewSubtask('');
       await loadSubtasks(task.id);
       showToast('Subtask ditambahkan!');
-    } catch { showToast(\1, 'error'); }
+    } catch { showToast('Gagal tambah subtask', 'error'); }
     finally { setAddingSubtask(false); }
   };
 
@@ -1217,7 +1217,7 @@ function TaskDetailPanel({
           await tasksApi.createAttachment(task.id, `paste-${Date.now()}.png`, item.type, base64);
           await loadAttachments(task.id);
           showToast('Gambar dilampirkan!');
-        } catch { showToast(\1, 'error'); }
+        } catch { showToast('Gagal lampirkan gambar', 'error'); }
       };
       reader.readAsDataURL(file);
     }
@@ -1228,7 +1228,7 @@ function TaskDetailPanel({
     try {
       await onUpdate(task.id, payload);
       await loadHistory(task.id);
-    } catch { showToast(\1, 'error'); }
+    } catch { showToast('Failed to update', 'error'); }
   };
 
   const saveText = async () => {
@@ -1240,7 +1240,7 @@ function TaskDetailPanel({
       await onUpdate(task.id, { title: newTitle, description: newDesc });
       await loadHistory(task.id);
       showToast('Tersimpan!');
-    } catch { showToast(\1, 'error'); }
+    } catch { showToast('Failed to save', 'error'); }
     finally { setSaving(false); }
   };
 
