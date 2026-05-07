@@ -41,6 +41,8 @@ func Migrate() {
 		&model.Project{},
 		&model.Task{},
 		&model.TaskHistory{},
+		&model.TaskTimeLog{},
+		&model.TaskAttachment{},
 		&model.ProjectMember{},
 		&model.ProjectColumnConfig{},
 	)

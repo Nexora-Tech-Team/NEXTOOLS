@@ -29,6 +29,8 @@ func main() {
 	projectRepo := repository.NewProjectRepository(database.DB)
 	taskRepo := repository.NewTaskRepository(database.DB)
 	taskHistRepo := repository.NewTaskHistoryRepository(database.DB)
+	taskTimeLogRepo := repository.NewTaskTimeLogRepository(database.DB)
+	taskAttachmentRepo := repository.NewTaskAttachmentRepository(database.DB)
 	projectMemberRepo := repository.NewProjectMemberRepository(database.DB)
 	columnConfigRepo := repository.NewColumnConfigRepository(database.DB)
 
@@ -38,6 +40,8 @@ func main() {
 	projectSvc := service.NewProjectService(projectRepo, taskRepo, projectMemberRepo)
 	taskSvc := service.NewTaskService(taskRepo, projectRepo, taskHistRepo)
 	taskHistSvc := service.NewTaskHistoryService(taskHistRepo)
+	taskTimeLogSvc := service.NewTaskTimeLogService(taskTimeLogRepo, taskRepo)
+	taskAttachmentSvc := service.NewTaskAttachmentService(taskAttachmentRepo, taskRepo)
 	projectMemberSvc := service.NewProjectMemberService(projectMemberRepo, projectRepo, userRepo)
 	columnConfigSvc := service.NewColumnConfigService(columnConfigRepo, projectRepo, projectMemberRepo)
 
@@ -48,6 +52,8 @@ func main() {
 	taskHandler := handler.NewTaskHandler(taskSvc, taskHistSvc)
 	projectMemberHandler := handler.NewProjectMemberHandler(projectMemberSvc)
 	columnConfigHandler := handler.NewColumnConfigHandler(columnConfigSvc)
+	taskTimeLogHandler := handler.NewTaskTimeLogHandler(taskTimeLogSvc)
+	taskAttachmentHandler := handler.NewTaskAttachmentHandler(taskAttachmentSvc)
 
 	r := gin.Default()
 
@@ -106,6 +112,19 @@ func main() {
 		api.PUT("/tasks/:id", taskHandler.Update)
 		api.DELETE("/tasks/:id", taskHandler.Delete)
 		api.GET("/tasks/:id/history", taskHandler.GetHistory)
+
+		api.GET("/me/time-logs", taskTimeLogHandler.GetMyLogs)
+		api.GET("/time-logs", taskTimeLogHandler.GetAllLogs)
+
+		api.POST("/tasks/:id/clock-in", taskTimeLogHandler.ClockIn)
+		api.POST("/tasks/:id/clock-out", taskTimeLogHandler.ClockOut)
+		api.GET("/tasks/:id/time-logs", taskTimeLogHandler.GetLogs)
+		api.POST("/tasks/:id/time-logs", taskTimeLogHandler.CreateManual)
+		api.DELETE("/tasks/:id/time-logs/:logId", taskTimeLogHandler.DeleteLog)
+
+		api.POST("/tasks/:id/attachments", taskAttachmentHandler.Create)
+		api.GET("/tasks/:id/attachments", taskAttachmentHandler.GetByTask)
+		api.DELETE("/tasks/:id/attachments/:attachmentId", taskAttachmentHandler.Delete)
 	}
 
 	port := os.Getenv("SERVER_PORT")

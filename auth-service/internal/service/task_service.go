@@ -56,6 +56,7 @@ func (s *taskService) Create(projectID, creatorID uint, req *model.CreateTaskReq
 	task := &model.Task{
 		Title:       req.Title,
 		Description: req.Description,
+		Category:    req.Category,
 		ProjectID:   projectID,
 		AssigneeID:  req.AssigneeID,
 		CreatorID:   creatorID,
@@ -126,6 +127,9 @@ func (s *taskService) Update(id, actorID uint, actorRole string, req *model.Upda
 	}
 	if req.Description != nil {
 		fields["description"] = *req.Description
+	}
+	if req.Category != nil {
+		fields["category"] = *req.Category
 	}
 	if req.Status != "" {
 		fields["status"] = req.Status

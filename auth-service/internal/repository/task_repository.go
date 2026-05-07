@@ -32,7 +32,8 @@ func (r *taskRepository) FindByProjectID(projectID uint) ([]model.Task, error) {
 	err := r.db.
 		Preload("Assignee").
 		Preload("Creator").
-		Where("project_id = ?", projectID).
+		Preload("Subtasks").
+		Where("project_id = ? AND parent_task_id IS NULL", projectID).
 		Order("created_at desc").
 		Find(&tasks).Error
 	return tasks, err
@@ -40,7 +41,7 @@ func (r *taskRepository) FindByProjectID(projectID uint) ([]model.Task, error) {
 
 func (r *taskRepository) FindByID(id uint) (*model.Task, error) {
 	var task model.Task
-	err := r.db.Preload("Assignee").Preload("Creator").First(&task, id).Error
+	err := r.db.Preload("Assignee").Preload("Creator").Preload("Subtasks").Preload("Subtasks.Assignee").First(&task, id).Error
 	if err != nil {
 		return nil, err
 	}

@@ -4,21 +4,19 @@ import { FolderKanban, Plus, Trash2, Pencil, X, ChevronRight, ListTodo } from 'l
 import { projectsApi } from '../api/projects';
 import type { Project, CreateProjectRequest } from '../types';
 import { useAuth } from '../context/useAuth';
+import { ProjectCardSkeleton, Spinner } from '../components/Skeleton';
+import { useToast } from '../components/Toast';
 
 export default function ProjectsPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const { showToast } = useToast();
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
   const [editProject, setEditProject] = useState<Project | null>(null);
   const [form, setForm] = useState<CreateProjectRequest>({ name: '', description: '' });
-  const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
-
-  const showToast = (msg: string, ok = true) => {
-    setToast({ msg, ok });
-    setTimeout(() => setToast(null), 3000);
-  };
 
   const fetchProjects = async () => {
     setLoading(true);
@@ -34,6 +32,7 @@ export default function ProjectsPage() {
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
+    setSaving(true);
     try {
       await projectsApi.create(form);
       showToast('Project created!');
@@ -41,21 +40,22 @@ export default function ProjectsPage() {
       setForm({ name: '', description: '' });
       fetchProjects();
     } catch {
-      showToast('Failed to create project', false);
-    }
+      showToast('Failed to create project', 'error');
+    } finally { setSaving(false); }
   };
 
   const handleUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editProject) return;
+    setSaving(true);
     try {
       await projectsApi.update(editProject.id, form);
       showToast('Project updated!');
       setEditProject(null);
       fetchProjects();
     } catch {
-      showToast('Failed to update project', false);
-    }
+      showToast('Failed to update project', 'error');
+    } finally { setSaving(false); }
   };
 
   const handleDelete = async (p: Project) => {
@@ -65,7 +65,7 @@ export default function ProjectsPage() {
       showToast('Project deleted');
       fetchProjects();
     } catch {
-      showToast('Failed to delete project', false);
+      showToast('Failed to delete project', 'error');
     }
   };
 
@@ -85,7 +85,7 @@ export default function ProjectsPage() {
             <FolderKanban className="w-5 h-5 text-white" />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-white">Projects</h1>
+            <h1 className="text-2xl font-bold tracking-tight text-white">Projects</h1>
             <p className="text-sm text-slate-400">{projects.length} active projects</p>
           </div>
         </div>
@@ -97,27 +97,29 @@ export default function ProjectsPage() {
         </button>
       </div>
 
-      {/* Toast */}
-      {toast && (
-        <div className={`mb-4 text-sm rounded-lg px-4 py-3 border ${toast.ok
-          ? 'bg-green-500/10 border-green-500/30 text-green-400'
-          : 'bg-red-500/10 border-red-500/30 text-red-400'}`}>
-          {toast.msg}
-        </div>
-      )}
-
       {/* Project grid */}
       {loading ? (
-        <div className="text-center py-16 text-slate-500">Loading projects...</div>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          {[1, 2, 3, 4].map(i => <ProjectCardSkeleton key={i} />)}
+        </div>
       ) : projects.length === 0 ? (
-        <div className="text-center py-16">
-          <FolderKanban className="w-12 h-12 text-slate-600 mx-auto mb-3" />
-          <p className="text-slate-400">Belum ada project. Buat yang pertama!</p>
+        <div className="flex flex-col items-center justify-center py-24 text-center">
+          <div className="w-16 h-16 rounded-2xl bg-slate-800 flex items-center justify-center mb-5">
+            <FolderKanban className="w-8 h-8 text-slate-600" />
+          </div>
+          <h3 className="text-slate-300 font-semibold text-lg mb-1">Belum ada project</h3>
+          <p className="text-slate-500 text-sm mb-6 max-w-xs">Buat project pertama untuk mulai mengelola task dan tim Anda.</p>
+          <button
+            onClick={() => setShowAdd(true)}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium transition-colors"
+          >
+            <Plus className="w-4 h-4" /> Buat Project
+          </button>
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           {projects.map((p) => (
-            <div key={p.id} onClick={() => navigate(`/projects/${p.id}`)} className="group cursor-pointer rounded-2xl border border-slate-700 bg-slate-800 p-4 transition-colors hover:border-indigo-500 sm:p-5">
+            <div key={p.id} onClick={() => navigate(`/projects/${p.id}`)} className="animate-fade-in group cursor-pointer rounded-2xl border border-slate-800 bg-slate-900 p-4 shadow-sm shadow-black/30 transition-all hover:border-slate-600 hover:shadow-md sm:p-5">
               <div className="flex items-start justify-between gap-2 mb-3">
                 <div className="flex-1 min-w-0">
                   <h3 className="text-white font-semibold truncate">{p.name}</h3>
@@ -189,7 +191,8 @@ export default function ProjectsPage() {
               <button type="button" onClick={() => { setShowAdd(false); setEditProject(null); }} className="flex-1 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300 text-sm transition-colors">
                 Cancel
               </button>
-              <button type="submit" className="flex-1 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium transition-colors">
+              <button type="submit" disabled={saving} className="flex-1 flex items-center justify-center gap-2 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-60 disabled:cursor-not-allowed text-white text-sm font-medium transition-colors">
+                {saving && <Spinner className="w-3.5 h-3.5" />}
                 {editProject ? 'Save Changes' : 'Create Project'}
               </button>
             </div>
