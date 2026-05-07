@@ -3,13 +3,15 @@ import { useNavigate } from 'react-router-dom';
 import {
   FolderKanban, CheckCircle2, Clock, AlertCircle, Loader2,
   ArrowRight, RefreshCw, TrendingUp, Users, ShieldAlert,
-  LayoutDashboard, Flame, Activity,
+  LayoutDashboard, Flame, Activity, Timer, ChevronLeft, ChevronRight,
+  Users2, ChevronDown, ChevronUp, Download,
 } from 'lucide-react';
+import { DashboardStatSkeleton, DashboardRowSkeleton } from '../components/Skeleton';
 import { useAuth } from '../context/useAuth';
 import { projectsApi } from '../api/projects';
 import { tasksApi } from '../api/tasks';
 import { usersApi } from '../api/users';
-import type { Project, Task, User } from '../types';
+import type { Project, Task, User, TaskTimeLog } from '../types';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -92,6 +94,102 @@ function groupBy<T>(arr: T[], key: (t: T) => string) {
   }, {});
 }
 
+type WlMode = 'week' | 'month';
+
+// ─── Excel export ─────────────────────────────────────────────────────────────
+
+function fmtDateTime(iso: string) {
+  return new Date(iso).toLocaleString('id-ID', {
+    day: '2-digit', month: '2-digit', year: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  });
+}
+
+function secsToHHMM(sec: number) {
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+
+const HARI = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+
+function fmtTanggal(iso: string) {
+  const d = new Date(iso);
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  return `${dd}/${mm}/${d.getFullYear()}`;
+}
+
+function fmtJam(iso: string) {
+  const d = new Date(iso);
+  return `${String(d.getHours()).padStart(2, '0')}.${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+function secsToDurasi(sec: number) {
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  if (h > 0 && m > 0) return `${h} Jam ${m} Menit`;
+  if (h > 0) return `${h} Jam`;
+  return `${m} Menit`;
+}
+
+async function downloadWorkloadExcel(logs: TaskTimeLog[], periodLabel: string) {
+  const XLSX = await import('xlsx');
+
+  // ── Sheet 1: Detail per sesi (format sesuai template) ──
+  const detailRows = [...logs]
+    .filter(l => l.clock_out) // hanya sesi yang sudah selesai
+    .sort((a, b) => new Date(a.clock_in).getTime() - new Date(b.clock_in).getTime())
+    .map(log => {
+      const ci = new Date(log.clock_in);
+      return {
+        'Nama'            : log.user?.name ?? `User #${log.user_id}`,
+        'Tanggal'         : fmtTanggal(log.clock_in),
+        'Hari'            : HARI[ci.getDay()],
+        'Project/System'  : log.project_name || '—',
+        'Category'        : log.category || '—',
+        'Task Description': log.task_title || `Task #${log.task_id}`,
+        'Priority'        : log.priority || '—',
+        'Status'          : log.status || '—',
+        'Start'           : fmtJam(log.clock_in),
+        'End'             : log.clock_out ? fmtJam(log.clock_out) : '—',
+        'Duration'        : log.clock_out ? secsToDurasi(log.duration) : '—',
+      };
+    });
+
+  // ── Sheet 2: Ringkasan per user ──
+  const byUser = new Map<number, { name: string; logs: TaskTimeLog[] }>();
+  for (const log of logs) {
+    if (!byUser.has(log.user_id)) byUser.set(log.user_id, { name: log.user?.name ?? `User #${log.user_id}`, logs: [] });
+    byUser.get(log.user_id)!.logs.push(log);
+  }
+  const summaryRows = [...byUser.values()]
+    .sort((a, b) => b.logs.reduce((s, l) => s + l.duration, 0) - a.logs.reduce((s, l) => s + l.duration, 0))
+    .map(({ name, logs: uLogs }) => ({
+      'Nama'        : name,
+      'Total Durasi': secsToDurasi(uLogs.reduce((s, l) => s + l.duration, 0)),
+      'Jumlah Task' : new Set(uLogs.map(l => l.task_id)).size,
+      'Jumlah Sesi' : uLogs.length,
+    }));
+
+  const wb = XLSX.utils.book_new();
+  const wsDetail  = XLSX.utils.json_to_sheet(detailRows);
+  const wsSummary = XLSX.utils.json_to_sheet(summaryRows);
+
+  wsDetail['!cols']  = [
+    { wch: 20 }, { wch: 12 }, { wch: 10 }, { wch: 20 },
+    { wch: 18 }, { wch: 30 }, { wch: 10 }, { wch: 12 },
+    { wch: 8  }, { wch: 8  }, { wch: 14 },
+  ];
+  wsSummary['!cols'] = [{ wch: 20 }, { wch: 14 }, { wch: 14 }, { wch: 12 }];
+
+  XLSX.utils.book_append_sheet(wb, wsDetail,  'Detail Sesi');
+  XLSX.utils.book_append_sheet(wb, wsSummary, 'Ringkasan');
+
+  const filename = `workload_${periodLabel.replace(/\s/g, '_').replace(/[–—]/g, '-')}.xlsx`;
+  XLSX.writeFile(wb, filename);
+}
+
 // ─── Main Dashboard ───────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
@@ -102,7 +200,20 @@ export default function DashboardPage() {
   const [loading,     setLoading]     = useState(true);
   const [refreshing,  setRefreshing]  = useState(false);
   const [lastRefresh, setLastRefresh] = useState(new Date());
-  const [selectedId,  setSelectedId]  = useState<number | null>(null); // null = semua project
+  const [selectedId,  setSelectedId]  = useState<number | null>(null);
+
+  // Time tracking calendar state
+  const [calMonth,    setCalMonth]    = useState(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
+  const [timeLogs,    setTimeLogs]    = useState<TaskTimeLog[]>([]);
+  const [timeLoading, setTimeLoading] = useState(false);
+  const [calSelDay,   setCalSelDay]   = useState<string | null>(null);
+
+  // Team workload state
+  const [wlMode,      setWlMode]      = useState<WlMode>('week');
+  const [wlOffset,    setWlOffset]    = useState(0); // 0 = current, -1 = previous, etc.
+  const [teamLogs,    setTeamLogs]    = useState<TaskTimeLog[]>([]);
+  const [teamLoading, setTeamLoading] = useState(false);
+  const [wlExpanded,  setWlExpanded]  = useState<number | null>(null); // expanded user id
 
   const load = useCallback(async (isRefresh = false) => {
     if (isRefresh) {
@@ -133,6 +244,48 @@ export default function DashboardPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    const { year, month } = calMonth;
+    const from = `${year}-${String(month + 1).padStart(2, '0')}-01`;
+    const lastDay = new Date(year, month + 1, 0).getDate();
+    const to = `${year}-${String(month + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+    setTimeLoading(true);
+    tasksApi.getMyTimeLogs(from, to)
+      .then(r => setTimeLogs(r.data ?? []))
+      .catch(() => setTimeLogs([]))
+      .finally(() => setTimeLoading(false));
+  }, [calMonth]);
+
+  // ── Team workload date range ───────────────────────────────────────────────
+
+  const wlRange = (() => {
+    const now = new Date();
+    if (wlMode === 'week') {
+      const day = now.getDay(); // 0=Sun
+      const monday = new Date(now);
+      monday.setDate(now.getDate() - ((day + 6) % 7) + wlOffset * 7);
+      monday.setHours(0, 0, 0, 0);
+      const sunday = new Date(monday);
+      sunday.setDate(monday.getDate() + 6);
+      const fmt = (d: Date) => d.toISOString().substring(0, 10);
+      return { from: fmt(monday), to: fmt(sunday), label: `${fmt(monday)} – ${fmt(sunday)}` };
+    } else {
+      const d = new Date(now.getFullYear(), now.getMonth() + wlOffset, 1);
+      const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+      const from = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
+      const to   = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+      return { from, to, label: new Date(d).toLocaleDateString('id-ID', { month: 'long', year: 'numeric' }) };
+    }
+  })();
+
+  useEffect(() => {
+    setTeamLoading(true);
+    tasksApi.getAllTimeLogs(wlRange.from, wlRange.to)
+      .then(r => setTeamLogs(r.data ?? []))
+      .catch(() => setTeamLogs([]))
+      .finally(() => setTeamLoading(false));
+  }, [wlRange.from, wlRange.to]);
 
   // ── Filter berdasarkan project yang dipilih ────────────────────────────────
 
@@ -165,8 +318,20 @@ export default function DashboardPage() {
     : users;
 
   if (loading) return (
-    <div className="flex-1 flex items-center justify-center text-slate-500">
-      <Loader2 className="w-5 h-5 animate-spin mr-2" /> Loading dashboard…
+    <div className="flex-1 overflow-y-auto bg-slate-950">
+      <div className="mx-auto max-w-7xl space-y-6 p-4 sm:p-6">
+        {/* Stats row */}
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          {[1,2,3,4].map(i => <DashboardStatSkeleton key={i} />)}
+        </div>
+        {/* Content rows */}
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+          <div className="lg:col-span-2"><DashboardRowSkeleton /></div>
+          <DashboardRowSkeleton />
+        </div>
+        <DashboardRowSkeleton />
+        <DashboardRowSkeleton />
+      </div>
     </div>
   );
 
@@ -177,11 +342,8 @@ export default function DashboardPage() {
         {/* ── Header ── */}
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <div className="flex items-center gap-2 mb-1">
-              <LayoutDashboard className="w-5 h-5 text-indigo-400" />
-              <h1 className="text-xl font-bold">Project Dashboard</h1>
-            </div>
-            <p className="text-slate-500 text-sm">
+            <h1 className="text-2xl font-bold tracking-tight text-white">Project Dashboard</h1>
+            <p className="text-slate-500 text-sm mt-0.5">
               Selamat datang, <span className="text-slate-300 font-medium">{user?.name}</span>
               {' '}·{' '}
               <span className="text-slate-600">
@@ -231,19 +393,19 @@ export default function DashboardPage() {
 
         {/* ── Project context banner (saat project dipilih) ── */}
         {selectedProj && (
-          <div className="flex flex-col gap-3 rounded-xl border border-indigo-500/20 bg-indigo-600/10 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-3 rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-start gap-3">
-              <FolderKanban className="w-4 h-4 text-indigo-400 flex-shrink-0" />
+              <FolderKanban className="w-4 h-4 text-slate-400 flex-shrink-0" />
               <div>
-                <p className="text-indigo-200 font-semibold text-sm">{selectedProj.name}</p>
+                <p className="text-slate-200 font-semibold text-sm">{selectedProj.name}</p>
                 {selectedProj.description && (
-                  <p className="text-indigo-400/60 text-xs">{selectedProj.description}</p>
+                  <p className="text-slate-500 text-xs">{selectedProj.description}</p>
                 )}
               </div>
             </div>
             <button
               onClick={() => navigate(`/projects/${selectedProj.id}`)}
-              className="flex min-h-10 items-center justify-center gap-1 rounded-lg border border-indigo-500/30 px-3 py-2 text-xs text-indigo-400 transition-colors hover:text-indigo-200 sm:w-auto"
+              className="flex min-h-10 items-center justify-center gap-1 rounded-lg border border-slate-600 px-3 py-2 text-xs text-slate-300 transition-colors hover:border-slate-500 hover:text-white sm:w-auto"
             >
               Buka Kanban <ArrowRight className="w-3 h-3" />
             </button>
@@ -296,7 +458,7 @@ export default function DashboardPage() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
 
           {/* Project Health (2/3) */}
-          <div className="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-2xl p-5">
+          <div className="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm shadow-black/30">
             <SectionHeader
               icon={<TrendingUp className="w-4 h-4 text-indigo-400" />}
               title={selectedId ? 'Detail Project' : 'Status Setiap Project'}
@@ -395,7 +557,7 @@ export default function DashboardPage() {
           </div>
 
           {/* Team Workload (1/3) */}
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm shadow-black/30">
             <SectionHeader icon={<Users className="w-4 h-4 text-purple-400" />} title="Beban Kerja Tim" />
 
             <div className="mt-4 space-y-4">
@@ -409,7 +571,7 @@ export default function DashboardPage() {
                 return (
                   <div key={u.id} className="border border-slate-800 rounded-xl p-3.5">
                     <div className="flex items-center gap-2.5 mb-2.5">
-                      <div className="w-8 h-8 rounded-full bg-indigo-600/30 flex items-center justify-center flex-shrink-0">
+                      <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center flex-shrink-0">
                         <span className="text-indigo-300 text-sm font-bold">{u.name.charAt(0).toUpperCase()}</span>
                       </div>
                       <div className="min-w-0">
@@ -466,7 +628,7 @@ export default function DashboardPage() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
 
           {/* Status Distribution */}
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm shadow-black/30">
             <SectionHeader icon={<Activity className="w-4 h-4 text-yellow-400" />} title="Distribusi Status Task" />
 
             {totalTasks === 0 ? (
@@ -525,7 +687,7 @@ export default function DashboardPage() {
           </div>
 
           {/* Priority Distribution */}
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm shadow-black/30">
             <SectionHeader icon={<Flame className="w-4 h-4 text-orange-400" />} title="Distribusi Prioritas" />
 
             {totalTasks === 0 ? (
@@ -579,7 +741,7 @@ export default function DashboardPage() {
 
         {/* ── Row 4: Overdue & Due Soon Table ── */}
         {(overdueTasks.length > 0 || dueSoonTasks.length > 0) && (
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm shadow-black/30">
             <SectionHeader
               icon={<ShieldAlert className="w-4 h-4 text-red-400" />}
               title="Perlu Perhatian Segera"
@@ -705,7 +867,7 @@ export default function DashboardPage() {
         )}
 
         {/* ── Row 5: All Tasks Summary Table ── */}
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5">
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm shadow-black/30">
           <div className="flex items-center justify-between mb-4">
             <SectionHeader icon={<Clock className="w-4 h-4 text-blue-400" />} title="Semua Task" />
             <button
@@ -807,7 +969,7 @@ export default function DashboardPage() {
                         <td className="py-2.5 pr-3">
                           {task.assignee ? (
                             <div className="flex items-center gap-1.5">
-                              <div className="w-5 h-5 rounded-full bg-indigo-600/30 flex items-center justify-center flex-shrink-0">
+                              <div className="w-5 h-5 rounded-full bg-slate-700 flex items-center justify-center flex-shrink-0">
                                 <span className="text-indigo-300 text-[10px] font-bold">
                                   {task.assignee.name.charAt(0).toUpperCase()}
                                 </span>
@@ -849,6 +1011,391 @@ export default function DashboardPage() {
           )}
         </div>
 
+        {/* ── Row 6: Time Tracking Calendar ── */}
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm shadow-black/30">
+          <div className="flex items-center justify-between mb-5">
+            <SectionHeader icon={<Timer className="w-4 h-4 text-green-400" />} title="Time Tracking" />
+            <div className="flex items-center gap-2">
+              <button onClick={() => setCalMonth(m => {
+                const d = new Date(m.year, m.month - 1);
+                return { year: d.getFullYear(), month: d.getMonth() };
+              })} className="p-1.5 rounded-lg text-slate-500 hover:text-white hover:bg-slate-800 transition-colors">
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <span className="text-sm font-semibold text-slate-300 w-32 text-center">
+                {new Date(calMonth.year, calMonth.month).toLocaleDateString('id-ID', { month: 'long', year: 'numeric' })}
+              </span>
+              <button onClick={() => setCalMonth(m => {
+                const d = new Date(m.year, m.month + 1);
+                return { year: d.getFullYear(), month: d.getMonth() };
+              })} className="p-1.5 rounded-lg text-slate-500 hover:text-white hover:bg-slate-800 transition-colors">
+                <ChevronRight className="w-4 h-4" />
+              </button>
+              {timeLoading && <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-600" />}
+            </div>
+          </div>
+
+          <TimeCalendar
+            year={calMonth.year}
+            month={calMonth.month}
+            logs={timeLogs}
+            selectedDay={calSelDay}
+            onSelectDay={setCalSelDay}
+          />
+
+          {/* Detail panel for selected day */}
+          {calSelDay && (() => {
+            const dayLogs = timeLogs.filter(l => l.clock_in.substring(0, 10) === calSelDay);
+            const totalSec = dayLogs.reduce((s, l) => s + l.duration, 0);
+            return (
+              <div className="mt-4 border-t border-slate-800 pt-4">
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-sm font-semibold text-slate-300">
+                    {new Date(calSelDay + 'T00:00:00').toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long' })}
+                  </p>
+                  <span className="text-xs font-mono text-green-400 font-semibold">{fmtDur(totalSec)} total</span>
+                </div>
+                {dayLogs.length === 0 ? (
+                  <p className="text-xs text-slate-600">Tidak ada aktivitas pada hari ini.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {dayLogs.map(log => {
+                      const ci = new Date(log.clock_in);
+                      const co = log.clock_out ? new Date(log.clock_out) : null;
+                      const isActive = !log.clock_out;
+                      return (
+                        <div key={log.id} className="flex items-center gap-3 bg-slate-800/50 rounded-xl px-4 py-3">
+                          <div className={`w-2 h-2 rounded-full flex-shrink-0 ${isActive ? 'bg-green-400 animate-pulse' : 'bg-slate-600'}`} />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm text-slate-200 font-medium truncate">
+                              {log.task_title || `Task #${log.task_id}`}
+                            </p>
+                            {log.project_name && (
+                              <p className="text-[11px] text-slate-500 truncate">{log.project_name}</p>
+                            )}
+                          </div>
+                          <div className="text-right flex-shrink-0">
+                            <p className="text-xs text-slate-400 font-mono">
+                              {ci.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
+                              {' → '}
+                              {co ? co.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) : <span className="text-green-400">Aktif</span>}
+                            </p>
+                            <p className={`text-xs font-mono font-semibold mt-0.5 ${isActive ? 'text-green-400' : 'text-slate-300'}`}>
+                              {isActive ? 'Berjalan' : fmtDur(log.duration)}
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+        </div>
+
+        {/* ── Row 7: Team Workload ── */}
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm shadow-black/30">
+          {/* Header */}
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-5">
+            <SectionHeader icon={<Users2 className="w-4 h-4 text-indigo-400" />} title="Team Workload" />
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* Week / Month toggle */}
+              <div className="flex rounded-lg overflow-hidden border border-slate-700">
+                {(['week', 'month'] as WlMode[]).map(m => (
+                  <button key={m}
+                    onClick={() => { setWlMode(m); setWlOffset(0); }}
+                    className={`px-3 py-1.5 text-xs font-medium transition-colors ${wlMode === m ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-white'}`}
+                  >
+                    {m === 'week' ? 'Minggu' : 'Bulan'}
+                  </button>
+                ))}
+              </div>
+              {/* Navigation */}
+              <div className="flex items-center gap-1">
+                <button onClick={() => setWlOffset(o => o - 1)}
+                  className="p-1.5 rounded-lg text-slate-500 hover:text-white hover:bg-slate-800 transition-colors">
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <span className="text-xs font-semibold text-slate-300 min-w-[130px] text-center">{wlRange.label}</span>
+                <button onClick={() => setWlOffset(o => Math.min(0, o + 1))}
+                  className="p-1.5 rounded-lg text-slate-500 hover:text-white hover:bg-slate-800 transition-colors disabled:opacity-30"
+                  disabled={wlOffset >= 0}
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+              {teamLoading && <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-600" />}
+              {/* Download Excel */}
+              <button
+                disabled={teamLogs.length === 0 || teamLoading}
+                onClick={() => downloadWorkloadExcel(teamLogs, wlRange.label)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-800 text-slate-300 hover:text-white hover:border-green-500/50 hover:bg-green-500/10 text-xs font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <Download className="w-3.5 h-3.5" />
+                Excel
+              </button>
+            </div>
+          </div>
+
+          {/* Per-user cards */}
+          {(() => {
+            // Group logs by user
+            const byUser = new Map<number, { user: TaskTimeLog['user'] & { id: number; name: string }; logs: TaskTimeLog[] }>();
+            for (const log of teamLogs) {
+              const uid = log.user_id;
+              if (!byUser.has(uid)) byUser.set(uid, { user: log.user as any, logs: [] });
+              byUser.get(uid)!.logs.push(log);
+            }
+            const rows = [...byUser.values()].sort((a, b) => {
+              const aTotal = a.logs.reduce((s, l) => s + l.duration, 0);
+              const bTotal = b.logs.reduce((s, l) => s + l.duration, 0);
+              return bTotal - aTotal;
+            });
+
+            if (rows.length === 0) return (
+              <p className="text-sm text-slate-600 text-center py-6">
+                {teamLoading ? 'Memuat…' : 'Tidak ada aktivitas di periode ini.'}
+              </p>
+            );
+
+            return (
+              <div className="space-y-2">
+                {rows.map(({ user, logs }) => {
+                  const uid = logs[0].user_id;
+                  const totalSec = logs.reduce((s, l) => s + l.duration, 0);
+                  const uniqueTasks = new Set(logs.map(l => l.task_id)).size;
+                  const sessions = logs.length;
+                  const isExpanded = wlExpanded === uid;
+                  const name = user?.name ?? `User #${uid}`;
+                  const initial = name.charAt(0).toUpperCase();
+
+                  // Max hours in this period for bar scaling
+                  const maxSec = Math.max(...rows.map(r => r.logs.reduce((s, l) => s + l.duration, 0)));
+                  const barPct = maxSec > 0 ? Math.round((totalSec / maxSec) * 100) : 0;
+
+                  return (
+                    <div key={uid} className="rounded-xl border border-slate-800 overflow-hidden">
+                      {/* Summary row */}
+                      <button
+                        className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-800/50 transition-colors text-left"
+                        onClick={() => setWlExpanded(isExpanded ? null : uid)}
+                      >
+                        {/* Avatar */}
+                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center flex-shrink-0 ring-1 ring-indigo-500/30">
+                          <span className="text-white text-xs font-bold">{initial}</span>
+                        </div>
+                        {/* Name + bar */}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-sm font-medium text-slate-200 truncate">{name}</span>
+                            <span className="text-xs font-mono font-semibold text-indigo-300 ml-2 flex-shrink-0">{fmtDur(totalSec)}</span>
+                          </div>
+                          <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                            <div className="h-full bg-indigo-500 rounded-full transition-all" style={{ width: `${barPct}%` }} />
+                          </div>
+                        </div>
+                        {/* Stats chips */}
+                        <div className="hidden sm:flex items-center gap-2 flex-shrink-0 ml-2">
+                          <span className="text-[10px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded-full">
+                            {uniqueTasks} task
+                          </span>
+                          <span className="text-[10px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded-full">
+                            {sessions} sesi
+                          </span>
+                        </div>
+                        {isExpanded ? <ChevronUp className="w-3.5 h-3.5 text-slate-500 flex-shrink-0" /> : <ChevronDown className="w-3.5 h-3.5 text-slate-500 flex-shrink-0" />}
+                      </button>
+
+                      {/* Expanded detail: day → project → tasks */}
+                      {isExpanded && (
+                        <div className="border-t border-slate-800 bg-slate-900/60 px-4 py-3 max-h-96 overflow-y-auto">
+                          {(() => {
+                            // Group by date
+                            const byDay = new Map<string, TaskTimeLog[]>();
+                            for (const log of logs) {
+                              const day = log.clock_in.substring(0, 10);
+                              if (!byDay.has(day)) byDay.set(day, []);
+                              byDay.get(day)!.push(log);
+                            }
+                            const days = [...byDay.entries()].sort(([a], [b]) => a.localeCompare(b));
+                            return days.map(([day, dayLogs]) => {
+                              const d = new Date(day + 'T00:00:00');
+                              const dayLabel = d.toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long' });
+                              const daySec = dayLogs.reduce((s, l) => s + l.duration, 0);
+
+                              // Group by project within this day
+                              const byProj = new Map<string, TaskTimeLog[]>();
+                              for (const log of dayLogs) {
+                                const proj = log.project_name || 'Tanpa Project';
+                                if (!byProj.has(proj)) byProj.set(proj, []);
+                                byProj.get(proj)!.push(log);
+                              }
+
+                              return (
+                                <div key={day} className="mb-4 last:mb-0">
+                                  {/* Day header */}
+                                  <div className="flex items-center justify-between mb-2">
+                                    <p className="text-[11px] font-bold text-slate-300 uppercase tracking-wide">{dayLabel}</p>
+                                    <span className="text-[10px] font-mono text-indigo-300 font-semibold">{fmtDur(daySec)}</span>
+                                  </div>
+
+                                  {/* Projects */}
+                                  <div className="space-y-2 pl-2">
+                                    {[...byProj.entries()].map(([projName, projLogs]) => {
+                                      const projSec = projLogs.reduce((s, l) => s + l.duration, 0);
+
+                                      // Group by task within project
+                                      const byTask = new Map<number, TaskTimeLog[]>();
+                                      for (const log of projLogs) {
+                                        if (!byTask.has(log.task_id)) byTask.set(log.task_id, []);
+                                        byTask.get(log.task_id)!.push(log);
+                                      }
+
+                                      return (
+                                        <div key={projName} className="rounded-lg border border-slate-800 overflow-hidden">
+                                          {/* Project header */}
+                                          <div className="flex items-center justify-between px-3 py-1.5 bg-slate-800/60">
+                                            <span className="text-[11px] font-semibold text-indigo-400 truncate">{projName}</span>
+                                            <span className="text-[10px] font-mono text-slate-400 flex-shrink-0 ml-2">{fmtDur(projSec)}</span>
+                                          </div>
+                                          {/* Tasks */}
+                                          <div className="divide-y divide-slate-800/60">
+                                            {[...byTask.entries()].map(([taskId, tLogs]) => {
+                                              const taskTitle = tLogs[0].task_title || `Task #${taskId}`;
+                                              const taskSec   = tLogs.reduce((s, l) => s + l.duration, 0);
+                                              const category  = tLogs[0].category;
+                                              return (
+                                                <div key={taskId} className="flex items-center gap-2.5 px-3 py-2">
+                                                  <div className="w-1 h-1 rounded-full bg-slate-500 flex-shrink-0" />
+                                                  <div className="flex-1 min-w-0">
+                                                    <p className="text-xs text-slate-300 truncate">{taskTitle}</p>
+                                                    {category && <p className="text-[10px] text-slate-600">{category}</p>}
+                                                  </div>
+                                                  <div className="flex-shrink-0 text-right">
+                                                    <p className="text-[11px] font-mono text-slate-300 font-semibold">{fmtDur(taskSec)}</p>
+                                                    <p className="text-[10px] text-slate-600">{tLogs.length} sesi</p>
+                                                  </div>
+                                                </div>
+                                              );
+                                            })}
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              );
+                            });
+                          })()}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
+        </div>
+
+      </div>
+    </div>
+  );
+}
+
+// ─── Time Calendar helpers ────────────────────────────────────────────────────
+
+function fmtDur(seconds: number): string {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  if (h > 0) return `${h}j ${m}m`;
+  if (m > 0) return `${m}m`;
+  return `${seconds}d`;
+}
+
+function TimeCalendar({ year, month, logs, selectedDay, onSelectDay }: {
+  year: number;
+  month: number;
+  logs: TaskTimeLog[];
+  selectedDay: string | null;
+  onSelectDay: (d: string | null) => void;
+}) {
+  const today = new Date().toISOString().substring(0, 10);
+
+  // Group logs by date
+  const byDay = logs.reduce<Record<string, number>>((acc, log) => {
+    const day = log.clock_in.substring(0, 10);
+    acc[day] = (acc[day] ?? 0) + log.duration;
+    return acc;
+  }, {});
+
+  // Build calendar grid
+  const firstDay = new Date(year, month, 1).getDay(); // 0=Sun
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const startOffset = (firstDay + 6) % 7; // Mon=0
+  const cells: (number | null)[] = [
+    ...Array(startOffset).fill(null),
+    ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
+  ];
+  while (cells.length % 7 !== 0) cells.push(null);
+
+  const DAY_LABELS = ['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min'];
+
+  // max seconds in a day (for heatmap intensity)
+  const maxSec = Math.max(...Object.values(byDay), 1);
+
+  const intensity = (sec: number) => {
+    const r = sec / maxSec;
+    if (r === 0) return '';
+    if (r < 0.25) return 'bg-green-900/60 border-green-800/40';
+    if (r < 0.5)  return 'bg-green-700/60 border-green-600/40';
+    if (r < 0.75) return 'bg-green-500/50 border-green-400/40';
+    return 'bg-green-400/60 border-green-300/40';
+  };
+
+  return (
+    <div>
+      <div className="grid grid-cols-7 mb-1">
+        {DAY_LABELS.map(d => (
+          <div key={d} className="text-center text-[10px] font-semibold text-slate-600 uppercase tracking-wider py-1">{d}</div>
+        ))}
+      </div>
+      <div className="grid grid-cols-7 gap-1">
+        {cells.map((day, i) => {
+          if (!day) return <div key={`e-${i}`} />;
+          const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+          const sec = byDay[dateStr] ?? 0;
+          const isToday = dateStr === today;
+          const isSelected = dateStr === selectedDay;
+          const hasWork = sec > 0;
+
+          return (
+            <button
+              key={dateStr}
+              onClick={() => onSelectDay(isSelected ? null : dateStr)}
+              className={`relative aspect-square rounded-lg border text-xs font-medium transition-all flex flex-col items-center justify-center gap-0.5
+                ${isSelected ? 'ring-2 ring-indigo-400 ring-offset-1 ring-offset-slate-900' : ''}
+                ${hasWork ? intensity(sec) : 'border-slate-800 bg-slate-800/30'}
+                ${isToday && !hasWork ? 'border-indigo-500/50' : ''}
+                hover:brightness-125`}
+            >
+              <span className={`leading-none ${isToday ? 'text-indigo-400 font-bold' : hasWork ? 'text-green-100' : 'text-slate-500'}`}>
+                {day}
+              </span>
+              {hasWork && (
+                <span className="text-[9px] text-green-200/70 leading-none font-mono">{fmtDur(sec)}</span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+      {/* Legend */}
+      <div className="flex items-center gap-2 mt-3 justify-end">
+        <span className="text-[10px] text-slate-600">Kurang</span>
+        {['bg-slate-800/30', 'bg-green-900/60', 'bg-green-700/60', 'bg-green-500/50', 'bg-green-400/60'].map((c, i) => (
+          <div key={i} className={`w-3.5 h-3.5 rounded-sm ${c} border border-slate-700`} />
+        ))}
+        <span className="text-[10px] text-slate-600">Lebih</span>
       </div>
     </div>
   );
@@ -864,19 +1411,19 @@ function MetricCard({ icon, iconBg, label, value, sub, highlight }: {
   sub?: string;
   highlight?: 'red' | 'green' | 'orange';
 }) {
-  const borderCls = highlight === 'red' ? 'border-red-500/30' : highlight === 'green' ? 'border-green-500/30' : highlight === 'orange' ? 'border-orange-500/30' : 'border-slate-800';
+  const borderCls = highlight === 'red' ? 'border-red-500/40' : highlight === 'green' ? 'border-green-500/40' : highlight === 'orange' ? 'border-orange-500/40' : 'border-slate-800';
   const valueCls  = highlight === 'red' ? 'text-red-400' : highlight === 'green' ? 'text-green-400' : highlight === 'orange' ? 'text-orange-400' : 'text-white';
   return (
-    <div className={`bg-slate-900 border ${borderCls} rounded-2xl p-4 flex flex-col gap-3`}>
-      <div className="flex items-center gap-2.5">
+    <div className={`bg-slate-900 border ${borderCls} rounded-2xl p-5 flex flex-col gap-3 shadow-sm shadow-black/30`}>
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-slate-400 text-xs font-medium leading-tight">{label}</p>
         <div className={`w-9 h-9 rounded-xl ${iconBg} flex items-center justify-center flex-shrink-0`}>
           {icon}
         </div>
-        <p className="text-slate-400 text-xs leading-tight">{label}</p>
       </div>
       <div>
-        <p className={`text-2xl font-bold tracking-tight ${valueCls}`}>{value}</p>
-        {sub && <p className="text-slate-600 text-xs mt-0.5">{sub}</p>}
+        <p className={`text-3xl font-bold tracking-tight leading-none ${valueCls}`}>{value}</p>
+        {sub && <p className="text-slate-500 text-xs mt-1.5">{sub}</p>}
       </div>
     </div>
   );
@@ -888,9 +1435,9 @@ function SectionHeader({ icon, title, badge }: {
   badge?: number;
 }) {
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-2.5">
       {icon}
-      <h2 className="text-sm font-semibold text-slate-200">{title}</h2>
+      <h2 className="text-sm font-semibold text-slate-100 tracking-wide">{title}</h2>
       {badge !== undefined && badge > 0 && (
         <span className="text-xs bg-red-500/20 text-red-400 px-1.5 py-0.5 rounded-full font-bold">{badge}</span>
       )}
@@ -898,12 +1445,21 @@ function SectionHeader({ icon, title, badge }: {
   );
 }
 
-function EmptyState({ label, action, onClick }: { label: string; action?: string; onClick?: () => void }) {
+function EmptyState({ label, sub, action, onClick }: { label: string; sub?: string; action?: string; onClick?: () => void }) {
   return (
-    <div className="text-center py-6 text-slate-600 text-sm">
-      {label}
+    <div className="flex flex-col items-center justify-center py-8 text-center gap-2">
+      <div className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center mb-1">
+        <span className="text-slate-600 text-base">—</span>
+      </div>
+      <p className="text-sm font-medium text-slate-500">{label}</p>
+      {sub && <p className="text-xs text-slate-600 max-w-[200px]">{sub}</p>}
       {action && onClick && (
-        <> — <button onClick={onClick} className="text-indigo-400 hover:underline">{action}</button></>
+        <button
+          onClick={onClick}
+          className="mt-1 text-xs text-indigo-400 hover:text-indigo-300 transition-colors font-medium"
+        >
+          {action}
+        </button>
       )}
     </div>
   );

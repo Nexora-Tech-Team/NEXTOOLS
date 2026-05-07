@@ -7,9 +7,12 @@ import { usersApi } from '../api/users';
 import { authApi } from '../api/auth';
 import type { User, UpdateUserRequest, RegisterRequest } from '../types';
 import { useAuth } from '../context/useAuth';
+import { useToast } from '../components/Toast';
+import { Spinner } from '../components/Skeleton';
 
 export default function UsersPage() {
   const { user: currentUser } = useAuth();
+  const { showToast } = useToast();
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -17,8 +20,7 @@ export default function UsersPage() {
   const [editForm, setEditForm] = useState<UpdateUserRequest>({});
   const [showAdd, setShowAdd] = useState(false);
   const [addForm, setAddForm] = useState<RegisterRequest>({ name: '', email: '', password: '', role: 'user' });
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
+  const [saving, setSaving] = useState(false);
 
   const fetchUsers = async () => {
     setLoading(true);
@@ -26,7 +28,7 @@ export default function UsersPage() {
       const res = await usersApi.getAll();
       setUsers(res.data || []);
     } catch {
-      setError('Failed to load users');
+      showToast('Failed to load users', 'error');
     } finally {
       setLoading(false);
     }
@@ -34,47 +36,44 @@ export default function UsersPage() {
 
   useEffect(() => { fetchUsers(); }, []);
 
-  const showMsg = (msg: string, isError = false) => {
-    if (isError) setError(msg); else setSuccess(msg);
-    setTimeout(() => { setError(''); setSuccess(''); }, 3000);
-  };
-
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
+    setSaving(true);
     try {
       await authApi.register(addForm);
-      showMsg('User added successfully');
+      showToast('User added successfully');
       setShowAdd(false);
       setAddForm({ name: '', email: '', password: '', role: 'user' });
       fetchUsers();
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
-      showMsg(msg || 'Failed to add user', true);
-    }
+      showToast(msg || 'Failed to add user', 'error');
+    } finally { setSaving(false); }
   };
 
   const handleEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingUser) return;
+    setSaving(true);
     try {
       await usersApi.update(editingUser.id, editForm);
-      showMsg('User updated successfully');
+      showToast('User updated successfully');
       setEditingUser(null);
       fetchUsers();
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
-      showMsg(msg || 'Failed to update user', true);
-    }
+      showToast(msg || 'Failed to update user', 'error');
+    } finally { setSaving(false); }
   };
 
   const handleDelete = async (id: number, name: string) => {
     if (!confirm(`Delete user "${name}"?`)) return;
     try {
       await usersApi.delete(id);
-      showMsg('User deleted');
+      showToast('User deleted');
       fetchUsers();
     } catch {
-      showMsg('Failed to delete user', true);
+      showToast('Failed to delete user', 'error');
     }
   };
 
@@ -99,7 +98,7 @@ export default function UsersPage() {
             <Users className="w-5 h-5 text-white" />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-white">User Management</h1>
+            <h1 className="text-2xl font-bold tracking-tight text-white">User Management</h1>
             <p className="text-slate-400 text-sm">{users.length} total users</p>
           </div>
         </div>
@@ -117,18 +116,6 @@ export default function UsersPage() {
           )}
         </div>
       </div>
-
-      {/* Toast messages */}
-      {error && (
-        <div className="mb-4 bg-red-500/10 border border-red-500/30 text-red-400 text-sm rounded-lg px-4 py-3">
-          {error}
-        </div>
-      )}
-      {success && (
-        <div className="mb-4 bg-green-500/10 border border-green-500/30 text-green-400 text-sm rounded-lg px-4 py-3">
-          {success}
-        </div>
-      )}
 
       {/* Search */}
       <div className="relative mb-4">
@@ -314,7 +301,7 @@ export default function UsersPage() {
             </Field>
             <div className="flex flex-col gap-2 pt-2 sm:flex-row">
               <button type="button" onClick={() => setShowAdd(false)} className="flex-1 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300 text-sm transition-colors">Cancel</button>
-              <button type="submit" className="flex-1 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium transition-colors">Add User</button>
+              <button type="submit" disabled={saving} className="flex-1 flex items-center justify-center gap-2 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-60 disabled:cursor-not-allowed text-white text-sm font-medium transition-colors">{saving && <Spinner className="w-3.5 h-3.5" />}Add User</button>
             </div>
           </form>
         </Modal>
@@ -347,7 +334,7 @@ export default function UsersPage() {
             </Field>
             <div className="flex flex-col gap-2 pt-2 sm:flex-row">
               <button type="button" onClick={() => setEditingUser(null)} className="flex-1 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300 text-sm transition-colors">Cancel</button>
-              <button type="submit" className="flex-1 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium transition-colors">Save Changes</button>
+              <button type="submit" disabled={saving} className="flex-1 flex items-center justify-center gap-2 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-60 disabled:cursor-not-allowed text-white text-sm font-medium transition-colors">{saving && <Spinner className="w-3.5 h-3.5" />}Save Changes</button>
             </div>
           </form>
         </Modal>

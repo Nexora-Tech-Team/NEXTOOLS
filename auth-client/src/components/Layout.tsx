@@ -1,6 +1,6 @@
-import { useState, type ReactNode } from 'react';
+import { useState, useEffect, type ReactNode } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Users, FolderKanban, LogOut, Menu, X } from 'lucide-react';
+import { LayoutDashboard, Users, FolderKanban, LogOut, Menu, X, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { useAuth } from '../context/useAuth';
 
 const NAV = [
@@ -14,6 +14,18 @@ export default function Layout({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const location = useLocation();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    try { return localStorage.getItem('sidebar-collapsed') === 'true'; }
+    catch { return false; }
+  });
+
+  const toggleSidebar = () => {
+    setSidebarCollapsed(v => {
+      const next = !v;
+      try { localStorage.setItem('sidebar-collapsed', String(next)); } catch {}
+      return next;
+    });
+  };
 
   const handleLogout = () => { logout(); navigate('/login'); };
   const goTo = (path: string) => {
@@ -21,7 +33,16 @@ export default function Layout({ children }: { children: ReactNode }) {
     setMobileNavOpen(false);
   };
 
-  const sidebarContent = (
+  // ESC to close mobile nav
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMobileNavOpen(false);
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, []);
+
+  const sidebarContent = (collapsed: boolean) => (
     <>
       <nav className="space-y-1">
         {NAV.map(({ path, label, icon: Icon }) => {
@@ -30,31 +51,46 @@ export default function Layout({ children }: { children: ReactNode }) {
             <button
               key={path}
               onClick={() => goTo(path)}
+              title={collapsed ? label : undefined}
               className={`flex min-h-11 w-full cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/70 ${
+                collapsed ? 'justify-center' : ''
+              } ${
                 active
                   ? 'bg-indigo-600/15 text-indigo-300'
                   : 'text-slate-300 hover:bg-slate-800 hover:text-white'
               }`}
             >
               <Icon className="h-4 w-4 flex-shrink-0" />
-              <span className="truncate">{label}</span>
+              {!collapsed && <span className="truncate">{label}</span>}
             </button>
           );
         })}
       </nav>
 
       <div className="mt-auto space-y-3 border-t border-slate-800 pt-4">
-        <div className="flex items-center gap-3 rounded-xl border border-slate-800 bg-slate-900/80 px-3 py-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-indigo-600/20">
-            <span className="text-sm font-semibold text-indigo-300">{user?.name.charAt(0).toUpperCase()}</span>
+        {collapsed ? (
+          <div className="flex justify-center">
+            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-indigo-600/20" title={user?.name}>
+              <span className="text-sm font-semibold text-indigo-300">{user?.name.charAt(0).toUpperCase()}</span>
+            </div>
           </div>
-          <div className="min-w-0">
-            <p className="truncate text-sm font-medium text-slate-100">{user?.name}</p>
-            <p className="text-xs capitalize text-slate-400">{user?.role}</p>
+        ) : (
+          <div className="flex items-center gap-3 rounded-xl border border-slate-800 bg-slate-900/80 px-3 py-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-indigo-600/20 flex-shrink-0">
+              <span className="text-sm font-semibold text-indigo-300">{user?.name.charAt(0).toUpperCase()}</span>
+            </div>
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium text-slate-100">{user?.name}</p>
+              <p className="text-xs capitalize text-slate-400">{user?.role}</p>
+            </div>
           </div>
-        </div>
-        <img src="/nexora-logo.png" alt="Nexora" className="h-6 w-auto object-contain opacity-40" />
-        <p className="text-[10px] text-slate-600">Part of CBQA Global Group</p>
+        )}
+        {!collapsed && (
+          <>
+            <img src="/nexora-logo.png" alt="Nexora" className="h-6 w-auto object-contain opacity-40" />
+            <p className="text-[10px] text-slate-600">Part of CBQA Global Group</p>
+          </>
+        )}
       </div>
     </>
   );
@@ -64,6 +100,7 @@ export default function Layout({ children }: { children: ReactNode }) {
       <header className="sticky top-0 z-30 border-b border-slate-800 bg-slate-950/95 px-4 py-3 backdrop-blur sm:px-5">
         <div className="flex items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-3">
+            {/* Mobile hamburger */}
             <button
               type="button"
               onClick={() => setMobileNavOpen(true)}
@@ -72,34 +109,48 @@ export default function Layout({ children }: { children: ReactNode }) {
             >
               <Menu className="h-5 w-5" />
             </button>
-          <img src="/nexora-logo.png" alt="Nexora" className="h-8 w-auto object-contain" />
-          <div className="hidden h-5 w-px bg-slate-700 sm:block" />
-          <span className="truncate text-sm font-semibold tracking-wide text-slate-200">Nex PM Tools</span>
-        </div>
-        <div className="flex items-center gap-2 sm:gap-3">
-          <div className="hidden items-center gap-2 text-sm sm:flex">
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-indigo-600/30">
-              <span className="text-xs font-medium text-indigo-300">{user?.name.charAt(0).toUpperCase()}</span>
-            </div>
-            <span className="max-w-36 truncate text-slate-300">{user?.name}</span>
-            <span className={`rounded-full border px-2 py-0.5 text-xs capitalize ${user?.role === 'admin' ? 'border-purple-500/30 bg-purple-500/15 text-purple-300' : 'border-slate-700 bg-slate-800 text-slate-400'}`}>
-              {user?.role}
-            </span>
+            {/* Desktop sidebar toggle */}
+            <button
+              type="button"
+              onClick={toggleSidebar}
+              className="hidden lg:flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-800 hover:text-white"
+              aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+              title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            >
+              {sidebarCollapsed
+                ? <PanelLeftOpen className="h-4 w-4" />
+                : <PanelLeftClose className="h-4 w-4" />
+              }
+            </button>
+            <img src="/nexora-logo.png" alt="Nexora" className="h-8 w-auto object-contain" />
+            <div className="hidden h-5 w-px bg-slate-700 sm:block" />
+            <span className="truncate text-sm font-semibold tracking-wide text-slate-200">NexTool</span>
           </div>
-          <button
-            onClick={handleLogout}
-            className="flex min-h-11 cursor-pointer items-center gap-2 rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-slate-300 transition-colors hover:border-slate-700 hover:text-white"
-          >
-            <LogOut className="h-4 w-4" />
-            <span className="hidden sm:inline">Logout</span>
-          </button>
-        </div>
+          <div className="flex items-center gap-2 sm:gap-3">
+            <div className="hidden items-center gap-2 text-sm sm:flex">
+              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-indigo-600/30">
+                <span className="text-xs font-medium text-indigo-300">{user?.name.charAt(0).toUpperCase()}</span>
+              </div>
+              <span className="max-w-36 truncate text-slate-300">{user?.name}</span>
+              <span className={`rounded-full border px-2 py-0.5 text-xs capitalize ${user?.role === 'admin' ? 'border-purple-500/30 bg-purple-500/15 text-purple-300' : 'border-slate-700 bg-slate-800 text-slate-400'}`}>
+                {user?.role}
+              </span>
+            </div>
+            <button
+              onClick={handleLogout}
+              className="flex min-h-11 cursor-pointer items-center gap-2 rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-slate-300 transition-colors hover:border-slate-700 hover:text-white"
+            >
+              <LogOut className="h-4 w-4" />
+              <span className="hidden sm:inline">Logout</span>
+            </button>
+          </div>
         </div>
       </header>
 
       <div className="flex flex-1 overflow-hidden">
-        <aside className="hidden w-64 flex-shrink-0 border-r border-slate-800 bg-slate-950 px-4 py-4 lg:flex lg:flex-col">
-          {sidebarContent}
+        {/* Desktop sidebar */}
+        <aside className={`hidden flex-shrink-0 border-r border-slate-800 bg-slate-950 px-3 py-4 lg:flex lg:flex-col transition-all duration-200 ${sidebarCollapsed ? 'w-16' : 'w-64'}`}>
+          {sidebarContent(sidebarCollapsed)}
         </aside>
 
         <main className="flex min-w-0 flex-1 flex-col overflow-auto">
@@ -107,6 +158,7 @@ export default function Layout({ children }: { children: ReactNode }) {
         </main>
       </div>
 
+      {/* Mobile nav overlay */}
       {mobileNavOpen && (
         <div className="fixed inset-0 z-40 flex lg:hidden" role="dialog" aria-modal="true">
           <button
@@ -127,7 +179,7 @@ export default function Layout({ children }: { children: ReactNode }) {
                 <X className="h-5 w-5" />
               </button>
             </div>
-            {sidebarContent}
+            {sidebarContent(false)}
           </aside>
         </div>
       )}

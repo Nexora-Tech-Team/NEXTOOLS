@@ -45,10 +45,22 @@ export interface TaskHistoryEntry {
   created_at: string;
 }
 
+export interface Subtask {
+  id: number;
+  title: string;
+  status: TaskStatus;
+  assignee_id?: number;
+  assignee?: User;
+  parent_task_id: number;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Task {
   id: number;
   title: string;
   description: string;
+  category: string;
   project_id: number;
   assignee_id?: number;
   assignee?: User;
@@ -57,8 +69,44 @@ export interface Task {
   status: TaskStatus;
   priority: TaskPriority;
   due_date?: string;
+  parent_task_id?: number;
+  subtask_count: number;
+  subtasks?: Subtask[];
   created_at: string;
   updated_at: string;
+}
+
+// Time tracking
+export interface TaskTimeLog {
+  id: number;
+  task_id: number;
+  task_title?: string;
+  category?: string;
+  priority?: string;
+  status?: string;
+  project_id?: number;
+  project_name?: string;
+  user_id: number;
+  user?: User;
+  clock_in: string;
+  clock_out?: string;
+  duration: number; // seconds
+}
+
+export interface TaskTimeLogsResponse {
+  logs: TaskTimeLog[];
+  total_duration: number; // seconds
+  active_log?: TaskTimeLog;
+}
+
+// Attachments
+export interface TaskAttachment {
+  id: number;
+  task_id: number;
+  filename: string;
+  mime_type: string;
+  data: string; // base64
+  created_at: string;
 }
 
 // Column config
@@ -92,17 +140,21 @@ export interface UpdateProjectRequest { name?: string; description?: string; }
 export interface CreateTaskRequest {
   title: string;
   description?: string;
+  category?: string;
   assignee_id?: number;
   status?: TaskStatus;
   priority?: TaskPriority;
-  due_date?: string; // "YYYY-MM-DD" or ""
+  due_date?: string;
+  parent_task_id?: number;
+  subtasks?: { title: string }[];
 }
 export interface UpdateTaskRequest {
   title?: string;
   description?: string;
+  category?: string;
   assignee_id?: number;
   clear_assignee?: boolean;
   status?: TaskStatus;
   priority?: TaskPriority;
-  due_date?: string; // "YYYY-MM-DD" or "" to clear
+  due_date?: string;
 }

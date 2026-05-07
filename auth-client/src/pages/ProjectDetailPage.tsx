@@ -1,16 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { BoardColumnSkeleton, Spinner } from '../components/Skeleton';
+import { useToast } from '../components/Toast';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, Plus, X, Calendar, User as UserIcon, Flag, Trash2,
   ChevronDown, AlertCircle, Search, ChevronLeft, Check, GripVertical,
-  SquarePlus, History, Clock3, Pencil, Users,
+  SquarePlus, History, Clock3, Pencil, Users, Play, Square, Timer,
+  Paperclip, ListTodo, PenLine, Upload, FileText,
 } from 'lucide-react';
 import { projectsApi } from '../api/projects';
 import { tasksApi } from '../api/tasks';
 import { usersApi } from '../api/users';
 import { membersApi } from '../api/members';
 import { useAuth } from '../context/useAuth';
-import type { Project, Task, User, ProjectMember, CreateTaskRequest, UpdateTaskRequest, TaskStatus, TaskPriority, TaskHistoryEntry, CustomColumn } from '../types';
+import type { Project, Task, User, ProjectMember, CreateTaskRequest, UpdateTaskRequest, TaskStatus, TaskPriority, TaskHistoryEntry, CustomColumn, TaskTimeLog, TaskTimeLogsResponse, TaskAttachment } from '../types';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -48,10 +51,10 @@ const CUSTOM_COLORS = [
 
 // ─── Priority config ──────────────────────────────────────────────────────────
 
-const PRIORITY_CONFIG: Record<TaskPriority, { label: string; dot: string; text: string; bg: string; cardBorder: string }> = {
-  low:    { label: 'Low',    dot: 'bg-slate-400',  text: 'text-slate-400',  bg: 'bg-slate-700',     cardBorder: 'border-l-slate-500'  },
-  medium: { label: 'Medium', dot: 'bg-yellow-400', text: 'text-yellow-400', bg: 'bg-yellow-500/10', cardBorder: 'border-l-yellow-500' },
-  high:   { label: 'High',   dot: 'bg-red-400',    text: 'text-red-400',    bg: 'bg-red-500/10',    cardBorder: 'border-l-red-500'    },
+const PRIORITY_CONFIG: Record<TaskPriority, { label: string; dot: string; text: string; bg: string; cardBorder: string; icon: string }> = {
+  low:    { label: 'Low',    dot: 'bg-slate-400',  text: 'text-slate-400',  bg: 'bg-slate-700',     cardBorder: 'border-l-slate-500',  icon: '▼' },
+  medium: { label: 'Medium', dot: 'bg-yellow-400', text: 'text-yellow-400', bg: 'bg-yellow-500/10', cardBorder: 'border-l-yellow-500', icon: '▶' },
+  high:   { label: 'High',   dot: 'bg-red-400',    text: 'text-red-400',    bg: 'bg-red-500/10',    cardBorder: 'border-l-red-500',    icon: '▲' },
 };
 
 const PRIORITY_OPTIONS: Array<{ value: TaskPriority; label: string }> = [
@@ -61,7 +64,7 @@ const PRIORITY_OPTIONS: Array<{ value: TaskPriority; label: string }> = [
 ];
 
 const EMPTY_FORM: CreateTaskRequest = {
-  title: '', description: '', assignee_id: undefined,
+  title: '', description: '', category: '', assignee_id: undefined,
   status: 'backlog', priority: 'medium', due_date: '',
 };
 
@@ -117,7 +120,6 @@ export default function ProjectDetailPage() {
   const [users,    setUsers]    = useState<User[]>([]);
   const [members,  setMembers]  = useState<ProjectMember[]>([]);
   const [loading,  setLoading]  = useState(true);
-  const [toast,    setToast]    = useState<{ msg: string; ok: boolean } | null>(null);
 
   // RBAC helpers
   const isAdmin      = user?.role === 'admin';
@@ -132,6 +134,7 @@ export default function ProjectDetailPage() {
   const [editTask,         setEditTask]         = useState<Task | null>(null);
   const [selectedTask,     setSelectedTask]     = useState<Task | null>(null);
   const [form,             setForm]             = useState<CreateTaskRequest>(EMPTY_FORM);
+  const [taskSaving,       setTaskSaving]       = useState(false);
 
   // column customisation — loaded from API, cached in localStorage for instant display
   const [colLabels, setColLabels] = useState<Record<string, string>>(
@@ -160,15 +163,19 @@ export default function ProjectDetailPage() {
   const [dragTaskId,  setDragTaskId]  = useState<number | null>(null);
   const [dragOverCol, setDragOverCol] = useState<string | null>(null);
 
+  // pagination
+  const [colPage, setColPage] = useState<Record<string, number>>({});
+  const PAGE_SIZE = 10;
+
+  // debounce refs for status updates
+  const statusTimersRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
+
   // filters
   const [search,          setSearch]          = useState('');
   const [filterPriority,  setFilterPriority]  = useState<TaskPriority | 'all'>('all');
   const [filterAssignee,  setFilterAssignee]  = useState<number | 'all'>('all');
 
-  const showToast = (msg: string, ok = true) => {
-    setToast({ msg, ok });
-    setTimeout(() => setToast(null), 3000);
-  };
+  const { showToast } = useToast();
 
   // ── Data fetching ──────────────────────────────────────────────────────────
 
@@ -229,7 +236,7 @@ export default function ProjectDetailPage() {
           custom_cols: cols as CustomColumn[],
         });
       } catch {
-        showToast('Gagal menyimpan konfigurasi kolom', false);
+        showToast(\1, 'error');
       }
     },
     [projectId],
@@ -277,7 +284,7 @@ export default function ProjectDetailPage() {
   const handleDeleteColumn = (key: string) => {
     const count = tasks.filter(t => t.status === key).length;
     if (count > 0) {
-      showToast(`Pindahkan atau hapus ${count} task di kolom ini dulu`, false);
+      showToast(\1, 'error');
       return;
     }
     const next = customCols.filter(c => c.key !== key);
@@ -287,32 +294,47 @@ export default function ProjectDetailPage() {
 
   // ── Task CRUD ──────────────────────────────────────────────────────────────
 
-  const handleAddTask = async (e: React.FormEvent) => {
+  const handleAddTask = async (e: React.FormEvent, pendingImages: PendingImage[], subtasks: string[]) => {
     e.preventDefault();
+    setTaskSaving(true);
     try {
-      await tasksApi.create(projectId, { ...form, assignee_id: form.assignee_id || undefined, due_date: form.due_date || '' });
+      const res = await tasksApi.create(projectId, { ...form, assignee_id: form.assignee_id || undefined, due_date: form.due_date || '' });
+      const taskId = res.data.id;
+      for (const img of pendingImages) {
+        await tasksApi.createAttachment(taskId, img.filename, img.mimeType, img.data);
+      }
+      for (const title of subtasks) {
+        await tasksApi.createSubtask(projectId, taskId, title);
+      }
       showToast('Task created!');
       setShowAddTask(false);
       setForm(EMPTY_FORM);
       refreshTasks();
-    } catch { showToast('Failed to create task', false); }
+    } catch { showToast('Failed to create task', 'error'); }
+    finally { setTaskSaving(false); }
   };
 
-  const handleUpdateTask = async (e: React.FormEvent) => {
+  const handleUpdateTask = async (e: React.FormEvent, pendingImages: PendingImage[]) => {
     e.preventDefault();
     if (!editTask) return;
+    setTaskSaving(true);
     try {
       await tasksApi.update(editTask.id, {
         title: form.title, description: form.description,
+        category: form.category,
         status: form.status, priority: form.priority,
         due_date: form.due_date ?? '',
         assignee_id: form.assignee_id || undefined,
         clear_assignee: !form.assignee_id,
       });
+      for (const img of pendingImages) {
+        await tasksApi.createAttachment(editTask.id, img.filename, img.mimeType, img.data);
+      }
       showToast('Task updated!');
       setEditTask(null);
       refreshTasks();
-    } catch { showToast('Failed to update task', false); }
+    } catch { showToast('Failed to update task', 'error'); }
+    finally { setTaskSaving(false); }
   };
 
   const handleDeleteTask = async (task: Task) => {
@@ -322,18 +344,26 @@ export default function ProjectDetailPage() {
       showToast('Task deleted');
       if (selectedTask?.id === task.id) setSelectedTask(null);
       refreshTasks();
-    } catch { showToast('Failed to delete task', false); }
+    } catch { showToast(\1, 'error'); }
   };
 
-  const handleStatusChange = async (task: Task, status: TaskStatus) => {
+  const handleStatusChange = (task: Task, status: TaskStatus) => {
+    // Optimistic update immediately
     setTasks(prev => prev.map(t => t.id === task.id ? { ...t, status } : t));
     setSelectedTask(prev => prev?.id === task.id ? { ...prev, status } : prev);
-    try {
-      await tasksApi.update(task.id, { status });
-    } catch {
-      setTasks(prev => prev.map(t => t.id === task.id ? { ...t, status: task.status } : t));
-      showToast('Failed to update status', false);
-    }
+    // Debounce API call — only fires 600ms after last change for this task
+    const existing = statusTimersRef.current.get(task.id);
+    if (existing) clearTimeout(existing);
+    const timer = setTimeout(async () => {
+      statusTimersRef.current.delete(task.id);
+      try {
+        await tasksApi.update(task.id, { status });
+      } catch {
+        setTasks(prev => prev.map(t => t.id === task.id ? { ...t, status: task.status } : t));
+        showToast(\1, 'error');
+      }
+    }, 600);
+    statusTimersRef.current.set(task.id, timer);
   };
 
   const handleDueDateChange = async (task: Task, due_date: string) => {
@@ -341,13 +371,13 @@ export default function ProjectDetailPage() {
     setTasks(prev => prev.map(t => t.id === task.id ? { ...t, due_date: due_date || undefined } : t));
     try {
       await tasksApi.update(task.id, { due_date });
-    } catch { refreshTasks(); showToast('Failed to update due date', false); }
+    } catch { refreshTasks(); showToast(\1, 'error'); }
   };
 
   const openEdit = (task: Task) => {
     setEditTask(task);
     setForm({
-      title: task.title, description: task.description,
+      title: task.title, description: task.description, category: task.category ?? '',
       assignee_id: task.assignee_id, status: task.status, priority: task.priority,
       due_date: task.due_date ? String(task.due_date).substring(0, 10) : '',
     });
@@ -361,7 +391,7 @@ export default function ProjectDetailPage() {
       const res = await membersApi.getByProject(projectId);
       setMembers(res.data || []);
       showToast('Member added!');
-    } catch { showToast('Failed to add member', false); }
+    } catch { showToast(\1, 'error'); }
   };
 
   const handleRemoveMember = async (userId: number) => {
@@ -371,7 +401,7 @@ export default function ProjectDetailPage() {
       const res = await membersApi.getByProject(projectId);
       setMembers(res.data || []);
       showToast('Member removed');
-    } catch { showToast('Failed to remove member', false); }
+    } catch { showToast(\1, 'error'); }
   };
 
   // ── Quick add ──────────────────────────────────────────────────────────────
@@ -383,7 +413,7 @@ export default function ProjectDetailPage() {
       setQuickAddTitle('');
       setQuickAddCol(null);
       refreshTasks();
-    } catch { showToast('Failed to create task', false); }
+    } catch { showToast(\1, 'error'); }
   };
 
   // ── Drag & drop ────────────────────────────────────────────────────────────
@@ -410,8 +440,29 @@ export default function ProjectDetailPage() {
 
   const tasksByStatus = (key: string) => filteredTasks.filter(t => t.status === key);
 
+  const pagedTasksByStatus = (key: string) => {
+    const all = tasksByStatus(key);
+    const limit = (colPage[key] ?? 1) * PAGE_SIZE;
+    return { visible: all.slice(0, limit), total: all.length };
+  };
+
   if (loading) return (
-    <div className="flex-1 flex items-center justify-center text-slate-500">Loading...</div>
+    <div className="flex h-full flex-col">
+      {/* Header skeleton */}
+      <div className="flex flex-shrink-0 items-center gap-3 border-b border-slate-700 px-6 py-4">
+        <div className="w-8 h-8 rounded-lg bg-slate-800 animate-pulse" />
+        <div className="space-y-1.5">
+          <div className="h-4 w-40 rounded bg-slate-800 animate-pulse" />
+          <div className="h-3 w-24 rounded bg-slate-800 animate-pulse" />
+        </div>
+      </div>
+      {/* Board skeleton */}
+      <div className="flex-1 overflow-x-auto px-6 pt-5 bg-[#141925]">
+        <div className="flex gap-4">
+          {[1, 2, 3, 4].map(i => <BoardColumnSkeleton key={i} />)}
+        </div>
+      </div>
+    </div>
   );
 
   return (
@@ -427,8 +478,8 @@ export default function ProjectDetailPage() {
             <ArrowLeft className="w-4 h-4" />
           </button>
           <div className="min-w-0">
-            <h1 className="truncate text-white font-bold">{project?.name}</h1>
-            {project?.description && <p className="text-slate-400 text-xs mt-0.5">{project.description}</p>}
+            <h1 className="truncate text-xl font-bold tracking-tight text-white">{project?.name}</h1>
+            {project?.description && <p className="text-slate-500 text-xs mt-0.5">{project.description}</p>}
           </div>
         </div>
         <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center lg:justify-end">
@@ -511,20 +562,11 @@ export default function ProjectDetailPage() {
         </span>
       </div>
 
-      {/* ── Toast ── */}
-      {toast && (
-        <div className={`mx-4 mt-3 flex-shrink-0 rounded-lg border px-4 py-2.5 text-sm sm:mx-6 ${toast.ok
-          ? 'bg-green-500/10 border-green-500/30 text-green-400'
-          : 'bg-red-500/10 border-red-500/30 text-red-400'}`}>
-          {toast.msg}
-        </div>
-      )}
-
       {/* ── Kanban board ── */}
-      <div className="flex-1 overflow-x-auto px-4 pb-6 pt-4 sm:px-5">
-        <div className="flex h-full gap-3">
+      <div className="flex-1 overflow-x-auto px-4 pb-6 pt-4 sm:px-6 bg-[#141925]">
+        <div className="flex h-full gap-4">
           {columns.map(col => {
-            const colTasks    = tasksByStatus(col.key);
+            const { visible: colTasks, total: colTotal } = pagedTasksByStatus(col.key);
             const isCollapsed = collapsedCols.has(col.key);
             const isDragOver  = dragOverCol === col.key;
             const label       = getLabel(col);
@@ -539,7 +581,7 @@ export default function ProjectDetailPage() {
                   className={`flex h-fit w-10 flex-shrink-0 cursor-pointer flex-col items-center gap-3 rounded-xl border-2 py-3 transition-colors ${col.border} bg-slate-800/30 hover:bg-slate-800/70`}
                 >
                   <span className={`text-xs px-1.5 py-0.5 rounded-full font-bold ${col.badge}`}>
-                    {colTasks.length}
+                    {colTotal}
                   </span>
                   <span
                     className="text-slate-400 text-xs font-semibold select-none"
@@ -555,13 +597,14 @@ export default function ProjectDetailPage() {
             return (
               <div
                 key={col.key}
-                className="flex w-[min(18rem,calc(100vw-3.75rem))] flex-shrink-0 flex-col sm:w-72"
+                className="flex w-[min(17rem,calc(100vw-3.75rem))] flex-shrink-0 flex-col sm:w-68 bg-[#1a2035]/60 rounded-xl px-2 pb-3 pt-1 shadow-md shadow-black/30"
                 onDragOver={e => { e.preventDefault(); setDragOverCol(col.key); }}
                 onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOverCol(null); }}
                 onDrop={() => handleDrop(col.key)}
               >
-                {/* Column header */}
-                <div className={`flex items-center gap-1.5 px-3 py-2 mb-3 rounded-lg border-l-4 transition-colors ${col.border} ${isDragOver ? 'bg-slate-700/80' : 'bg-slate-800/50'}`}>
+                {/* Column header — JIRA style */}
+                <div className={`flex items-center gap-2 px-2 py-2 mb-2 transition-colors ${isDragOver ? 'opacity-80' : ''}`}>
+                  <span className={`w-2.5 h-2.5 rounded-sm flex-shrink-0 ${col.dot}`} />
                   {editingColKey === col.key ? (
                     <input
                       autoFocus
@@ -572,20 +615,18 @@ export default function ProjectDetailPage() {
                         if (e.key === 'Enter')  saveColRename();
                         if (e.key === 'Escape') setEditingColKey(null);
                       }}
-                      className="flex-1 bg-transparent text-white text-sm font-semibold outline-none border-b border-indigo-500 min-w-0"
+                      className="flex-1 bg-transparent text-slate-200 text-xs font-bold uppercase tracking-wider outline-none border-b border-indigo-500 min-w-0"
                     />
                   ) : (
                     <span
                       onDoubleClick={() => startRenameCol(col)}
-                      className="flex-1 text-slate-200 text-sm font-semibold cursor-default select-none min-w-0 truncate"
+                      className="flex-1 text-slate-400 text-xs font-bold uppercase tracking-wider cursor-default select-none min-w-0 truncate"
                       title="Double-click to rename"
                     >
                       {label}
                     </span>
                   )}
-                  <span className={`text-xs px-2 py-0.5 rounded-full font-bold flex-shrink-0 ${col.badge}`}>
-                    {colTasks.length}
-                  </span>
+                  <span className="text-[10px] text-slate-500 font-semibold flex-shrink-0">{colTotal}</span>
                   {customCols.some(c => c.key === col.key) && (
                     <button
                       onClick={() => handleDeleteColumn(col.key)}
@@ -605,7 +646,7 @@ export default function ProjectDetailPage() {
                 </div>
 
                 {/* Task list */}
-                <div className={`flex flex-col gap-2 flex-1 overflow-y-auto min-h-[60px] rounded-xl transition-all ${isDragOver ? 'bg-slate-700/25 ring-2 ring-dashed ring-slate-500' : ''}`}>
+                <div className={`flex flex-col gap-2 flex-1 overflow-y-auto min-h-[60px] rounded-lg transition-all ${isDragOver ? 'bg-indigo-500/5 ring-1 ring-dashed ring-indigo-500/30' : ''}`}>
                   {colTasks.map(task => (
                     <TaskCard
                       key={task.id}
@@ -624,13 +665,30 @@ export default function ProjectDetailPage() {
                     />
                   ))}
                   {colTasks.length === 0 && (
-                    <div className="border-2 border-dashed border-slate-700/50 rounded-xl h-14 flex items-center justify-center">
-                      <span className="text-slate-600 text-xs">
-                        {isDragOver ? 'Release to drop' : 'No tasks'}
-                      </span>
+                    <div className={`rounded-xl h-20 flex flex-col items-center justify-center gap-1 transition-all border border-dashed ${
+                      isDragOver
+                        ? 'border-indigo-500/60 bg-indigo-500/5'
+                        : 'border-slate-700/30 bg-slate-800/10'
+                    }`}>
+                      {isDragOver
+                        ? <span className="text-indigo-400 text-xs font-medium">Lepas di sini</span>
+                        : <>
+                            <span className="text-slate-700 text-[11px]">Tidak ada task</span>
+                          </>
+                      }
                     </div>
                   )}
                 </div>
+
+                {/* Load more */}
+                {colTasks.length < colTotal && (
+                  <button
+                    onClick={() => setColPage(prev => ({ ...prev, [col.key]: (prev[col.key] ?? 1) + 1 }))}
+                    className="w-full py-1.5 text-xs text-slate-500 hover:text-slate-300 hover:bg-slate-800/40 rounded-lg transition-colors"
+                  >
+                    Load more ({colTotal - colTasks.length} lagi)
+                  </button>
+                )}
 
                 {/* Quick-add */}
                 <div className="mt-2">
@@ -731,6 +789,7 @@ export default function ProjectDetailPage() {
           onSubmit={editTask ? handleUpdateTask : handleAddTask}
           onClose={() => { setShowAddTask(false); setEditTask(null); }}
           submitLabel={editTask ? 'Save Changes' : 'Create Task'}
+          saving={taskSaving}
         />
       )}
 
@@ -747,7 +806,6 @@ export default function ProjectDetailPage() {
           await refreshTasks();
         }}
         onDelete={handleDeleteTask}
-        showToast={showToast}
       />
 
       {/* ── Members panel ── */}
@@ -784,22 +842,22 @@ function TaskCard({
   onStatusChange: (s: TaskStatus) => void;
   onDueDateChange: (d: string) => void;
 }) {
-  const [showStatusMenu, setShowStatusMenu] = useState(false);
+  const [showMenu, setShowMenu] = useState(false);
   const menuRef      = useRef<HTMLDivElement>(null);
   const dateInputRef = useRef<HTMLInputElement>(null);
 
   const pc         = PRIORITY_CONFIG[task.priority] ?? PRIORITY_CONFIG.medium;
   const dueDateStr = task.due_date ? String(task.due_date).substring(0, 10) : '';
   const isOverdue  = !!dueDateStr && new Date(dueDateStr) < new Date() && task.status !== 'done';
-  const currentCol = columns.find(c => c.key === task.status);
+  const isDone     = task.status === 'done';
 
   useEffect(() => {
     const h = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setShowStatusMenu(false);
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setShowMenu(false);
     };
-    if (showStatusMenu) document.addEventListener('mousedown', h);
+    if (showMenu) document.addEventListener('mousedown', h);
     return () => document.removeEventListener('mousedown', h);
-  }, [showStatusMenu]);
+  }, [showMenu]);
 
   return (
     <div
@@ -807,100 +865,117 @@ function TaskCard({
       onDragStart={e => { e.dataTransfer.effectAllowed = 'move'; onDragStart(); }}
       onDragEnd={onDragEnd}
       onClick={onClick}
-      className={`bg-slate-800 border border-slate-700/80 border-l-4 ${pc.cardBorder} rounded-xl p-3.5 transition-all group cursor-pointer
-        ${isDragging ? 'opacity-40 scale-95 shadow-none' : 'hover:border-slate-600 hover:shadow-lg hover:shadow-black/30 hover:-translate-y-px'}`}
+      className={`animate-fade-in group relative bg-[#1e2330] border border-[#2a3147] rounded-lg cursor-pointer transition-all shadow-sm shadow-black/40
+        ${isDragging ? 'opacity-30 scale-95' : 'hover:border-[#3d4f7c] hover:shadow-lg hover:shadow-black/50 hover:-translate-y-0.5'}`}
     >
-      {/* Title row */}
-      <div className="flex items-start gap-2 mb-1.5">
-        <GripVertical className="w-3.5 h-3.5 text-slate-600 group-hover:text-slate-400 mt-0.5 flex-shrink-0 cursor-grab active:cursor-grabbing" />
-        <p className="text-white text-sm font-medium leading-snug flex-1 min-w-0">{task.title}</p>
-        {canEdit && (
-          <div className="flex flex-shrink-0 gap-0.5 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100">
-            <button onClick={onEdit}
-              className="rounded-md p-1.5 text-slate-500 transition-colors hover:bg-slate-700 hover:text-white">
-              <Pencil className="w-3 h-3" />
-            </button>
-            <button onClick={onDelete}
-              className="rounded-md p-1.5 text-slate-500 transition-colors hover:bg-red-500/10 hover:text-red-400">
-              <Trash2 className="w-3 h-3" />
+      {/* Priority stripe */}
+      <div className={`absolute left-0 top-0 bottom-0 w-0.5 rounded-l-lg ${pc.cardBorder.replace('border-l-', 'bg-')}`} />
+
+      <div className="px-3 pt-3 pb-2.5 pl-4">
+        {/* Top row: ID + actions */}
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-[10px] font-mono text-slate-500 tracking-wide">TASK-{task.id}</span>
+          <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+            {canEdit && <>
+              <button onClick={onEdit}
+                className="p-1 rounded text-slate-500 hover:text-white hover:bg-slate-700 transition-colors">
+                <Pencil className="w-3 h-3" />
+              </button>
+              <button onClick={onDelete}
+                className="p-1 rounded text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-colors">
+                <Trash2 className="w-3 h-3" />
+              </button>
+            </>}
+            <button
+              onClick={e => { e.stopPropagation(); dateInputRef.current?.showPicker(); }}
+              className="p-1 rounded text-slate-500 hover:text-slate-300 hover:bg-slate-700 transition-colors">
+              <GripVertical className="w-3 h-3" />
             </button>
           </div>
+        </div>
+
+        {/* Title */}
+        <p className={`text-sm font-medium leading-snug mb-2.5 ${isDone ? 'line-through text-slate-500' : 'text-slate-100'}`}>
+          {task.title}
+        </p>
+
+        {/* Description preview */}
+        {task.description && (
+          <p className="text-slate-500 text-xs mb-2.5 line-clamp-2 leading-relaxed">{task.description}</p>
         )}
-      </div>
 
-      {task.description && (
-        <p className="text-slate-400 text-xs mb-2.5 line-clamp-2 leading-relaxed pl-5">{task.description}</p>
-      )}
+        {/* Chips row */}
+        <div className="flex flex-wrap gap-1.5 mb-3">
+          {/* Priority chip */}
+          <span className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded font-medium ${pc.bg} ${pc.text}`}>
+            <span className="text-[9px]">{pc.icon}</span>
+            {pc.label}
+          </span>
 
-      {/* Priority badge */}
-      <div className="pl-5 mb-2.5">
-        <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full ${pc.bg} ${pc.text}`}>
-          <span className={`w-1.5 h-1.5 rounded-full ${pc.dot}`} />
-          <Flag className="w-2.5 h-2.5" />
-          {pc.label}
-        </span>
-      </div>
-
-      {/* Footer */}
-      <div className="flex flex-col gap-2 border-t border-slate-700/60 pt-2.5 sm:flex-row sm:items-center sm:justify-between">
-        {/* Assignee */}
-        <div className="flex items-center gap-1.5 min-w-0">
-          {task.assignee ? (
-            <>
-              <div className="w-5 h-5 rounded-full bg-indigo-600/40 flex items-center justify-center flex-shrink-0">
-                <span className="text-indigo-300 text-[10px] font-bold">
-                  {task.assignee.name.charAt(0).toUpperCase()}
-                </span>
-              </div>
-              <span className="text-slate-400 text-xs truncate max-w-[70px]">{task.assignee.name}</span>
-            </>
-          ) : (
-            <span className="flex items-center gap-1 text-slate-600 text-xs">
-              <UserIcon className="w-3 h-3" /> Unassigned
+          {/* Subtask count */}
+          {(task.subtask_count > 0) && (
+            <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-slate-700/60 text-slate-400">
+              <ListTodo className="w-2.5 h-2.5" />
+              {task.subtask_count}
             </span>
+          )}
+
+          {/* Due date */}
+          {dueDateStr && (
+            <button
+              onClick={e => { e.stopPropagation(); dateInputRef.current?.showPicker(); }}
+              className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded transition-colors ${
+                isOverdue ? 'bg-red-500/15 text-red-400' : 'bg-slate-700/60 text-slate-400 hover:bg-slate-700'
+              }`}
+            >
+              {isOverdue && <AlertCircle className="w-2.5 h-2.5" />}
+              <Calendar className="w-2.5 h-2.5" />
+              {new Date(dueDateStr).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })}
+            </button>
           )}
         </div>
 
-        <div className="flex items-center justify-between gap-1.5 sm:flex-shrink-0">
-          {/* Due date */}
-          <button
-            onClick={e => { e.stopPropagation(); dateInputRef.current?.showPicker(); }}
-            className={`flex items-center gap-1 text-xs rounded px-1.5 py-0.5 transition-colors ${
-              isOverdue      ? 'text-red-400 bg-red-500/10 hover:bg-red-500/20'
-              : dueDateStr   ? 'text-slate-400 hover:text-white hover:bg-slate-700'
-              : 'text-slate-600 hover:text-slate-400 hover:bg-slate-700'
-            }`}
-          >
-            {isOverdue && <AlertCircle className="w-3 h-3" />}
-            <Calendar className="w-3 h-3" />
-            {dueDateStr
-              ? new Date(dueDateStr).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })
-              : 'Set date'}
-          </button>
-          <input
-            ref={dateInputRef} type="date" value={dueDateStr}
-            onChange={e => { e.stopPropagation(); onDueDateChange(e.target.value); }}
-            onClick={e => e.stopPropagation()}
-            className="sr-only"
-          />
+        {/* Bottom row: assignee + status */}
+        <div className="flex items-center justify-between gap-2">
+          {/* Assignee avatar */}
+          {task.assignee ? (
+            <div className="flex items-center gap-1.5 min-w-0">
+              <div className="w-5 h-5 rounded-full bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center flex-shrink-0 ring-1 ring-indigo-500/30">
+                <span className="text-white text-[9px] font-bold leading-none">
+                  {task.assignee.name.charAt(0).toUpperCase()}
+                </span>
+              </div>
+              <span className="text-slate-500 text-[11px] truncate max-w-[80px]">{task.assignee.name}</span>
+            </div>
+          ) : (
+            <div className="w-5 h-5 rounded-full border border-dashed border-slate-600 flex items-center justify-center">
+              <UserIcon className="w-2.5 h-2.5 text-slate-600" />
+            </div>
+          )}
 
-          {/* Status pill */}
-          <div className="relative" ref={menuRef}>
+          {/* Status dropdown */}
+          <div className="relative flex-shrink-0" ref={menuRef}>
             <button
-              onClick={e => { e.stopPropagation(); setShowStatusMenu(v => !v); }}
-              className={`flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium transition-colors hover:opacity-80 ${currentCol?.badge ?? 'bg-slate-700 text-slate-300'}`}
+              onClick={e => { e.stopPropagation(); setShowMenu(v => !v); }}
+              className={`flex items-center gap-1 text-[10px] px-2 py-0.5 rounded font-semibold uppercase tracking-wide transition-colors hover:opacity-80 ${
+                task.status === 'done' ? 'bg-green-500/20 text-green-400' :
+                task.status === 'in_progress' ? 'bg-yellow-500/20 text-yellow-400' :
+                task.status === 'review' ? 'bg-purple-500/20 text-purple-400' :
+                task.status === 'todo' ? 'bg-blue-500/20 text-blue-400' :
+                'bg-slate-700 text-slate-400'
+              }`}
             >
-              {colLabels[task.status] || currentCol?.label || task.status}
+              {colLabels[task.status] || columns.find(c => c.key === task.status)?.label || task.status}
               <ChevronDown className="w-2.5 h-2.5" />
             </button>
-            {showStatusMenu && (
-              <div className="absolute right-0 bottom-full mb-1 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl z-20 py-1 w-40 overflow-hidden">
+            {showMenu && (
+              <div className="absolute right-0 bottom-full mb-1 bg-[#1a2035] border border-[#2a3147] rounded-lg shadow-2xl z-20 py-1 w-40 overflow-hidden">
                 {columns.map(c => (
                   <button
                     key={c.key}
-                    onClick={e => { e.stopPropagation(); onStatusChange(c.key); setShowStatusMenu(false); }}
+                    onClick={e => { e.stopPropagation(); onStatusChange(c.key); setShowMenu(false); }}
                     className={`w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 transition-colors ${
-                      task.status === c.key ? 'text-indigo-400 bg-indigo-600/10' : 'text-slate-300 hover:bg-slate-700'
+                      task.status === c.key ? 'text-indigo-400 bg-indigo-600/10' : 'text-slate-300 hover:bg-slate-700/50'
                     }`}
                   >
                     <span className={`w-1.5 h-1.5 rounded-full ${c.dot}`} />
@@ -912,6 +987,14 @@ function TaskCard({
           </div>
         </div>
       </div>
+
+      {/* Hidden date input */}
+      <input
+        ref={dateInputRef} type="date" value={dueDateStr}
+        onChange={e => { e.stopPropagation(); onDueDateChange(e.target.value); }}
+        onClick={e => e.stopPropagation()}
+        className="sr-only"
+      />
     </div>
   );
 }
@@ -919,7 +1002,7 @@ function TaskCard({
 // ─── Task Detail Panel ────────────────────────────────────────────────────────
 
 function TaskDetailPanel({
-  task, users, columns, colLabels, canEdit, onClose, onUpdate, onDelete, showToast,
+  task, users, columns, colLabels, canEdit, onClose, onUpdate, onDelete,
 }: {
   task: Task | null;
   users: User[];
@@ -929,14 +1012,33 @@ function TaskDetailPanel({
   onClose: () => void;
   onUpdate: (id: number, payload: UpdateTaskRequest) => Promise<void>;
   onDelete: (task: Task) => void;
-  showToast: (msg: string, ok?: boolean) => void;
 }) {
+  const { showToast } = useToast();
+  // ESC to close panel
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => { if (e.key === 'Escape' && task) onClose(); };
+    document.addEventListener('keydown', h);
+    return () => document.removeEventListener('keydown', h);
+  }, [task, onClose]);
+
+  const [activeTab,    setActiveTab]    = useState<'details' | 'subtasks' | 'timelogs' | 'history'>('details');
   const [editTitle,    setEditTitle]    = useState('');
   const [editDesc,     setEditDesc]     = useState('');
   const [saving,       setSaving]       = useState(false);
   const [history,      setHistory]      = useState<TaskHistoryEntry[]>([]);
   const [histLoading,  setHistLoading]  = useState(false);
-  const prevIdRef = useRef<number | null>(null);
+  const [timeLogs,     setTimeLogs]     = useState<TaskTimeLogsResponse | null>(null);
+  const [timeLoading,  setTimeLoading]  = useState(false);
+  const [clockTick,    setClockTick]    = useState(0);
+  const [attachments,  setAttachments]  = useState<TaskAttachment[]>([]);
+  const [uploadingAttachment, setUploadingAttachment] = useState(false);
+  const [subtasks,     setSubtasks]     = useState<Task[]>([]);
+  const [newSubtask,   setNewSubtask]   = useState('');
+  const [addingSubtask, setAddingSubtask] = useState(false);
+  const prevIdRef      = useRef<number | null>(null);
+  const tickRef        = useRef<ReturnType<typeof setInterval> | null>(null);
+  const loadedTabsRef  = useRef<Set<string>>(new Set());
+  const fileInputRef   = useRef<HTMLInputElement>(null);
 
   const loadHistory = async (taskId: number) => {
     setHistLoading(true);
@@ -950,22 +1052,183 @@ function TaskDetailPanel({
     }
   };
 
+  const loadTimeLogs = async (taskId: number) => {
+    setTimeLoading(true);
+    try {
+      const res = await tasksApi.getTimeLogs(taskId);
+      setTimeLogs(res.data);
+    } catch (error) {
+      console.error('Failed to load time logs', error);
+    } finally {
+      setTimeLoading(false);
+    }
+  };
+
+  const loadAttachments = async (taskId: number) => {
+    try {
+      const res = await tasksApi.getAttachments(taskId);
+      setAttachments(res.data ?? []);
+    } catch { /* silent */ }
+  };
+
+  const loadSubtasks = async (taskId: number) => {
+    try {
+      const res = await tasksApi.getByProject(task!.project_id);
+      setSubtasks((res.data ?? []).filter((t: Task) => t.parent_task_id === taskId));
+    } catch { /* silent */ }
+  };
+
+  // Live ticker for active clock-in
+  useEffect(() => {
+    if (timeLogs?.active_log) {
+      tickRef.current = setInterval(() => setClockTick(t => t + 1), 1000);
+    } else {
+      if (tickRef.current) clearInterval(tickRef.current);
+    }
+    return () => { if (tickRef.current) clearInterval(tickRef.current); };
+  }, [timeLogs?.active_log]);
+
+  const handleTabChange = (tab: typeof activeTab) => {
+    setActiveTab(tab);
+    if (!task || loadedTabsRef.current.has(`${task.id}-${tab}`)) return;
+    loadedTabsRef.current.add(`${task.id}-${tab}`);
+    if (tab === 'details') loadAttachments(task.id);
+    if (tab === 'subtasks') loadSubtasks(task.id);
+    if (tab === 'timelogs') loadTimeLogs(task.id);
+    if (tab === 'history')  loadHistory(task.id);
+  };
+
   useEffect(() => {
     if (task && task.id !== prevIdRef.current) {
       setEditTitle(task.title);
       setEditDesc(task.description ?? '');
-      loadHistory(task.id);
+      setSubtasks([]);
+      setAttachments([]);
+      setTimeLogs(null);
+      setHistory([]);
+      setActiveTab('details');
+      loadedTabsRef.current = new Set([`${task.id}-details`]);
+      loadAttachments(task.id);
       prevIdRef.current = task.id;
     }
-    if (!task) prevIdRef.current = null;
+    if (!task) {
+      prevIdRef.current = null;
+      setTimeLogs(null);
+      setAttachments([]);
+      setSubtasks([]);
+      setHistory([]);
+      loadedTabsRef.current = new Set();
+    }
   }, [task]);
+
+  const handleClockIn = async (manualTime?: string) => {
+    if (!task) return;
+    try {
+      await tasksApi.clockIn(task.id, manualTime);
+      await loadTimeLogs(task.id);
+      showToast('Clock in berhasil!');
+    } catch { showToast(\1, 'error'); }
+  };
+
+  const handleClockOut = async (manualTime?: string) => {
+    if (!task) return;
+    try {
+      await tasksApi.clockOut(task.id, manualTime);
+      await loadTimeLogs(task.id);
+      showToast('Clock out berhasil!');
+    } catch { showToast(\1, 'error'); }
+  };
+
+  const handleManualTimeLog = async (clockIn: string, clockOut: string) => {
+    if (!task) return;
+    try {
+      await tasksApi.createManualTimeLog(task.id, clockIn, clockOut);
+      await loadTimeLogs(task.id);
+      showToast('Time log ditambahkan!');
+    } catch { showToast(\1, 'error'); }
+  };
+
+  const handleDeleteTimeLog = async (logId: number) => {
+    if (!task) return;
+    try {
+      await tasksApi.deleteTimeLog(task.id, logId);
+      await loadTimeLogs(task.id);
+      showToast('Time log dihapus');
+    } catch { showToast(\1, 'error'); }
+  };
+
+  const handleAddSubtask = async () => {
+    if (!task || !newSubtask.trim()) return;
+    setAddingSubtask(true);
+    try {
+      await tasksApi.createSubtask(task.project_id, task.id, newSubtask.trim());
+      setNewSubtask('');
+      await loadSubtasks(task.id);
+      showToast('Subtask ditambahkan!');
+    } catch { showToast(\1, 'error'); }
+    finally { setAddingSubtask(false); }
+  };
+
+  const handleDeleteAttachment = async (attachId: number) => {
+    if (!task) return;
+    try {
+      await tasksApi.deleteAttachment(task.id, attachId);
+      await loadAttachments(task.id);
+      showToast('Lampiran dihapus');
+    } catch { showToast('Gagal hapus lampiran', 'error'); }
+  };
+
+  const handleUploadFiles = async (files: FileList | null) => {
+    if (!task || !files || files.length === 0) return;
+    setUploadingAttachment(true);
+    try {
+      for (const file of Array.from(files)) {
+        const base64 = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = ev => resolve((ev.target?.result as string).split(',')[1]);
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+        await tasksApi.createAttachment(task.id, file.name, file.type, base64);
+      }
+      await loadAttachments(task.id);
+      showToast(files.length > 1 ? `${files.length} file dilampirkan!` : 'File dilampirkan!');
+    } catch { showToast('Gagal upload file', 'error'); }
+    finally {
+      setUploadingAttachment(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const handlePasteInPanel = async (e: React.ClipboardEvent) => {
+    if (!task) return;
+    const items = Array.from(e.clipboardData.items);
+    const imageItems = items.filter(item => item.type.startsWith('image/'));
+    if (imageItems.length === 0) return;
+    e.preventDefault();
+    for (const item of imageItems) {
+      const file = item.getAsFile();
+      if (!file) continue;
+      const reader = new FileReader();
+      reader.onload = async ev => {
+        const dataUrl = ev.target?.result as string;
+        const base64 = dataUrl.split(',')[1];
+        try {
+          await tasksApi.createAttachment(task.id, `paste-${Date.now()}.png`, item.type, base64);
+          await loadAttachments(task.id);
+          showToast('Gambar dilampirkan!');
+        } catch { showToast(\1, 'error'); }
+      };
+      reader.readAsDataURL(file);
+    }
+  };
 
   const fieldChange = async (payload: UpdateTaskRequest) => {
     if (!task) return;
     try {
       await onUpdate(task.id, payload);
       await loadHistory(task.id);
-    } catch { showToast('Failed to update', false); }
+    } catch { showToast(\1, 'error'); }
   };
 
   const saveText = async () => {
@@ -977,7 +1240,7 @@ function TaskDetailPanel({
       await onUpdate(task.id, { title: newTitle, description: newDesc });
       await loadHistory(task.id);
       showToast('Tersimpan!');
-    } catch { showToast('Failed to save', false); }
+    } catch { showToast(\1, 'error'); }
     finally { setSaving(false); }
   };
 
@@ -1003,8 +1266,6 @@ function TaskDetailPanel({
             <div className="flex items-center gap-2">
               {pc && <span className={`w-2 h-2 rounded-full flex-shrink-0 ${pc.dot}`} />}
               <span className="text-xs text-slate-500 font-mono tracking-wider">TASK-{task.id}</span>
-              <span className="text-xs text-slate-600">·</span>
-              <span className="text-xs text-indigo-400 font-medium">Edit Mode</span>
             </div>
             <div className="flex items-center gap-1">
               {canEdit && (
@@ -1020,181 +1281,360 @@ function TaskDetailPanel({
             </div>
           </div>
 
+          {/* ── Tabs ── */}
+          <div className="flex border-b border-slate-700 flex-shrink-0 px-1">
+            {([
+              { key: 'details',  label: 'Details',      icon: <PenLine className="w-3 h-3" /> },
+              { key: 'subtasks', label: 'Child Issues',  icon: <ListTodo className="w-3 h-3" /> },
+              { key: 'timelogs', label: 'Time',          icon: <Timer className="w-3 h-3" /> },
+              { key: 'history',  label: 'History',       icon: <History className="w-3 h-3" /> },
+            ] as const).map(tab => (
+              <button
+                key={tab.key}
+                onClick={() => handleTabChange(tab.key)}
+                className={`flex items-center gap-1.5 px-3 py-2.5 text-[11px] font-medium border-b-2 transition-colors -mb-px ${
+                  activeTab === tab.key
+                    ? 'border-indigo-500 text-indigo-400'
+                    : 'border-transparent text-slate-500 hover:text-slate-300'
+                }`}
+              >
+                {tab.icon}{tab.label}
+              </button>
+            ))}
+          </div>
+
           {/* ── Body ── */}
           <div className="flex-1 overflow-y-auto">
 
-            {/* Edit section */}
-            <div className="px-5 py-4 space-y-4">
-              {/* Title */}
-              <div>
-                <label className={panelLbl}>Judul Task</label>
-                <textarea
-                  value={editTitle}
-                  onChange={e => setEditTitle(e.target.value)}
-                  rows={2}
-                  placeholder="Judul task…"
-                  className="w-full bg-slate-800/60 border border-slate-700 text-white text-base font-semibold rounded-xl px-3 py-2.5 resize-none focus:outline-none focus:border-indigo-500 transition-colors leading-snug"
-                />
-              </div>
-
-              {/* Meta grid */}
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {/* ── Details Tab ── */}
+            {activeTab === 'details' && (
+              <div className="px-5 py-4 space-y-4">
+                {/* Title */}
                 <div>
-                  <label className={panelLbl}>Status</label>
-                  <select
-                    value={task.status}
-                    onChange={e => fieldChange({ status: e.target.value as TaskStatus })}
-                    className={panelSel}
-                  >
-                    {columns.map(c => (
-                      <option key={c.key} value={c.key}>{colLabels[c.key] || c.label}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className={panelLbl}>Priority</label>
-                  <select
-                    value={task.priority}
-                    onChange={e => fieldChange({ priority: e.target.value as TaskPriority })}
-                    className={panelSel}
-                  >
-                    {PRIORITY_OPTIONS.map(({ value, label }) => (
-                      <option key={value} value={value}>{label}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className={panelLbl}>Assignee</label>
-                  <select
-                    value={task.assignee_id ?? ''}
-                    onChange={e => fieldChange({
-                      assignee_id: e.target.value ? Number(e.target.value) : undefined,
-                      clear_assignee: !e.target.value,
-                    })}
-                    className={panelSel}
-                  >
-                    <option value="">— Unassigned —</option>
-                    {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className={panelLbl}>Due Date</label>
-                  <input
-                    type="date"
-                    value={dueDateStr}
-                    onChange={e => fieldChange({ due_date: e.target.value })}
-                    className={`${panelSel} [color-scheme:dark]`}
+                  <label className={panelLbl}>Judul Task</label>
+                  <textarea
+                    value={editTitle}
+                    onChange={e => setEditTitle(e.target.value)}
+                    rows={2}
+                    placeholder="Judul task…"
+                    className="w-full bg-slate-800/60 border border-slate-700 text-white text-base font-semibold rounded-xl px-3 py-2.5 resize-none focus:outline-none focus:border-indigo-500 transition-colors leading-snug"
                   />
                 </div>
-              </div>
 
-              {/* Description */}
-              <div>
-                <label className={panelLbl}>Deskripsi</label>
-                <textarea
-                  value={editDesc}
-                  onChange={e => setEditDesc(e.target.value)}
-                  rows={4}
-                  placeholder="Tambah deskripsi…"
-                  className="w-full bg-slate-800/60 border border-slate-700 text-white placeholder-slate-500 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-indigo-500 transition-colors resize-none"
-                />
-              </div>
-
-              {/* Save title/desc */}
-              {textChanged && (
-                <button
-                  onClick={saveText}
-                  disabled={saving}
-                  className="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-                >
-                  <Check className="w-4 h-4" />
-                  {saving ? 'Menyimpan…' : 'Simpan Perubahan'}
-                </button>
-              )}
-            </div>
-
-            {/* ── Divider ── */}
-            <div className="mx-5 border-t border-slate-800" />
-
-            {/* ── History Section ── */}
-            <div className="px-5 py-4">
-              <div className="flex items-center gap-2 mb-3">
-                <History className="w-3.5 h-3.5 text-slate-500" />
-                <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
-                  Riwayat Aktivitas
-                </span>
-                {history.length > 0 && (
-                  <span className="text-[10px] bg-slate-800 text-slate-500 px-1.5 py-0.5 rounded-full">{history.length}</span>
-                )}
-                {histLoading && <span className="text-[10px] text-slate-600 animate-pulse">loading…</span>}
-              </div>
-
-              <div className="space-y-3">
-                {/* Created entry — from task data */}
-                <div className="flex gap-3">
-                  <div className="flex flex-col items-center">
-                    <div className="w-6 h-6 rounded-full bg-green-500/20 flex items-center justify-center flex-shrink-0">
-                      <span className="text-green-400 text-[10px] font-bold">
-                        {task.creator?.name?.charAt(0).toUpperCase() ?? '?'}
-                      </span>
-                    </div>
-                    {history.length > 0 && <div className="w-px flex-1 bg-slate-800 mt-1" />}
+                {/* Meta grid */}
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div>
+                    <label className={panelLbl}>Status</label>
+                    <select
+                      value={task.status}
+                      onChange={e => fieldChange({ status: e.target.value as TaskStatus })}
+                      className={panelSel}
+                    >
+                      {columns.map(c => (
+                        <option key={c.key} value={c.key}>{colLabels[c.key] || c.label}</option>
+                      ))}
+                    </select>
                   </div>
-                  <div className="flex-1 pb-3">
-                    <p className="text-xs text-slate-300">
-                      <span className="font-semibold text-green-400">{task.creator?.name ?? 'Unknown'}</span>
-                      {' '}membuat task ini
-                    </p>
-                    <p className="text-[11px] text-slate-600 mt-0.5 flex items-center gap-1">
-                      <Clock3 className="w-3 h-3" />
-                      {fmtTs(task.created_at)}
-                    </p>
+                  <div>
+                    <label className={panelLbl}>Priority</label>
+                    <select
+                      value={task.priority}
+                      onChange={e => fieldChange({ priority: e.target.value as TaskPriority })}
+                      className={panelSel}
+                    >
+                      {PRIORITY_OPTIONS.map(({ value, label }) => (
+                        <option key={value} value={value}>{label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className={panelLbl}>Assignee</label>
+                    <select
+                      value={task.assignee_id ?? ''}
+                      onChange={e => fieldChange({
+                        assignee_id: e.target.value ? Number(e.target.value) : undefined,
+                        clear_assignee: !e.target.value,
+                      })}
+                      className={panelSel}
+                    >
+                      <option value="">— Unassigned —</option>
+                      {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className={panelLbl}>Due Date</label>
+                    <input
+                      type="date"
+                      value={dueDateStr}
+                      onChange={e => fieldChange({ due_date: e.target.value })}
+                      className={`${panelSel} [color-scheme:dark]`}
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className={panelLbl}>Category</label>
+                    <input
+                      type="text"
+                      key={task.id}
+                      defaultValue={task.category ?? ''}
+                      onBlur={e => { if (e.target.value !== (task.category ?? '')) fieldChange({ category: e.target.value }); }}
+                      placeholder="e.g. Bug Fix, Development…"
+                      className={panelSel}
+                    />
                   </div>
                 </div>
 
-                {/* Edit history entries from DB */}
-                {history.map((entry, i) => {
-                  const isLast = i === history.length - 1;
-                  const name = entry.changed_by?.name ?? 'Unknown';
-                  return (
-                    <div key={entry.id} className="flex gap-3">
-                      <div className="flex flex-col items-center">
-                        <div className="w-6 h-6 rounded-full bg-indigo-500/20 flex items-center justify-center flex-shrink-0">
-                          <span className="text-indigo-400 text-[10px] font-bold">
-                            {name.charAt(0).toUpperCase()}
-                          </span>
-                        </div>
-                        {!isLast && <div className="w-px flex-1 bg-slate-800 mt-1" />}
-                      </div>
-                      <div className={`flex-1 ${!isLast ? 'pb-3' : ''}`}>
-                        <p className="text-xs text-slate-300">
-                          <span className="font-semibold text-indigo-400">{name}</span>
-                          {' '}mengubah task
-                        </p>
-                        <div className="mt-1.5">
-                          <div className="flex items-start gap-1.5 text-[11px]">
-                            <span className="text-slate-500 flex-shrink-0 capitalize">{entry.field}:</span>
-                            {entry.old_value && (
-                              <span className="text-slate-500 line-through truncate max-w-[80px]">{entry.old_value}</span>
-                            )}
-                            {entry.old_value && <span className="text-slate-600">→</span>}
-                            <span className="text-slate-300 font-medium truncate max-w-[80px]">{entry.new_value ?? '—'}</span>
-                          </div>
-                        </div>
-                        <p className="text-[11px] text-slate-600 mt-1 flex items-center gap-1">
-                          <Clock3 className="w-3 h-3" />
-                          {fmtTs(entry.created_at)}
-                        </p>
-                      </div>
-                    </div>
-                  );
-                })}
+                {/* Description */}
+                <div>
+                  <label className={panelLbl}>Deskripsi</label>
+                  <textarea
+                    value={editDesc}
+                    onChange={e => setEditDesc(e.target.value)}
+                    onPaste={handlePasteInPanel}
+                    rows={4}
+                    placeholder="Tambah deskripsi… (Ctrl+V untuk tempel gambar)"
+                    className="w-full bg-slate-800/60 border border-slate-700 text-white placeholder-slate-500 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-indigo-500 transition-colors resize-none"
+                  />
+                </div>
 
-                {!histLoading && history.length === 0 && (
-                  <p className="text-xs text-slate-700 text-center py-2">Belum ada riwayat perubahan</p>
+                {/* Attachments */}
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className={panelLbl}><Paperclip className="w-3 h-3 inline mr-1" />Lampiran {attachments.length > 0 && `(${attachments.length})`}</label>
+                    {canEdit && (
+                      <>
+                        <input
+                          ref={fileInputRef}
+                          type="file"
+                          multiple
+                          className="hidden"
+                          onChange={e => handleUploadFiles(e.target.files)}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => fileInputRef.current?.click()}
+                          disabled={uploadingAttachment}
+                          className="flex items-center gap-1 text-xs text-slate-400 hover:text-white transition-colors disabled:opacity-50"
+                        >
+                          {uploadingAttachment ? <Spinner className="w-3 h-3" /> : <Upload className="w-3 h-3" />}
+                          {uploadingAttachment ? 'Uploading…' : 'Upload'}
+                        </button>
+                      </>
+                    )}
+                  </div>
+                  {attachments.length === 0 && !uploadingAttachment ? (
+                    <div
+                      className="border-2 border-dashed border-slate-700 rounded-xl p-4 text-center cursor-pointer hover:border-slate-500 transition-colors"
+                      onClick={() => canEdit && fileInputRef.current?.click()}
+                      onDragOver={e => { e.preventDefault(); }}
+                      onDrop={e => { e.preventDefault(); canEdit && handleUploadFiles(e.dataTransfer.files); }}
+                    >
+                      <Upload className="w-5 h-5 text-slate-600 mx-auto mb-1" />
+                      <p className="text-xs text-slate-600">{canEdit ? 'Klik atau drag file ke sini' : 'Belum ada lampiran'}</p>
+                      <p className="text-[10px] text-slate-700 mt-0.5">Atau paste gambar (Ctrl+V)</p>
+                    </div>
+                  ) : (
+                    <div
+                      className="flex flex-wrap gap-2"
+                      onDragOver={e => e.preventDefault()}
+                      onDrop={e => { e.preventDefault(); canEdit && handleUploadFiles(e.dataTransfer.files); }}
+                    >
+                      {attachments.map(a => {
+                        const isImage = a.mime_type.startsWith('image/');
+                        const dataUrl = `data:${a.mime_type};base64,${a.data}`;
+                        return (
+                          <div key={a.id} className="relative group">
+                            {isImage ? (
+                              <img
+                                src={dataUrl}
+                                alt={a.filename}
+                                className="h-20 w-20 object-cover rounded-lg border border-slate-700 cursor-pointer hover:border-slate-500 transition-colors"
+                                onClick={() => window.open(dataUrl, '_blank')}
+                              />
+                            ) : (
+                              <a
+                                href={dataUrl}
+                                download={a.filename}
+                                className="flex flex-col items-center justify-center h-20 w-20 rounded-lg border border-slate-700 bg-slate-800 hover:border-slate-500 transition-colors gap-1 px-1"
+                              >
+                                <FileText className="w-6 h-6 text-slate-400" />
+                                <span className="text-[9px] text-slate-500 text-center leading-tight truncate w-full text-center">{a.filename}</span>
+                              </a>
+                            )}
+                            {canEdit && (
+                              <button
+                                onClick={() => handleDeleteAttachment(a.id)}
+                                className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-red-500 text-white items-center justify-center hidden group-hover:flex"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })}
+                      {uploadingAttachment && (
+                        <div className="flex items-center justify-center h-20 w-20 rounded-lg border border-slate-700 bg-slate-800/50">
+                          <Spinner className="w-5 h-5 text-slate-500" />
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Save title/desc */}
+                {textChanged && (
+                  <button
+                    onClick={saveText}
+                    disabled={saving}
+                    className="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    <Check className="w-4 h-4" />
+                    {saving ? 'Menyimpan…' : 'Simpan Perubahan'}
+                  </button>
                 )}
               </div>
-            </div>
+            )}
+
+            {/* ── Child Issues Tab ── */}
+            {activeTab === 'subtasks' && (
+              <div className="px-5 py-4">
+                <div className="space-y-1.5 mb-3">
+                  {subtasks.map(st => (
+                    <div key={st.id} className="flex items-center gap-2 text-sm py-1.5 px-2 rounded-lg hover:bg-slate-800/50">
+                      <div className="w-4 h-4 rounded-sm bg-indigo-500/20 border border-indigo-500/40 flex items-center justify-center flex-shrink-0">
+                        <ListTodo className="w-2.5 h-2.5 text-indigo-400" />
+                      </div>
+                      <span className={`flex-1 truncate text-sm ${st.status === 'done' ? 'line-through text-slate-500' : 'text-slate-300'}`}>{st.title}</span>
+                      <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded ${st.status === 'done' ? 'bg-green-500/20 text-green-400' : 'bg-slate-700/60 text-slate-500'}`}>
+                        {st.status}
+                      </span>
+                    </div>
+                  ))}
+                  {subtasks.length === 0 && (
+                    <div className="flex flex-col items-center py-6 gap-1.5">
+                      <ListTodo className="w-6 h-6 text-slate-700" />
+                      <p className="text-xs text-slate-600 font-medium">Belum ada child issue</p>
+                      <p className="text-[11px] text-slate-700">Tambahkan subtask di bawah</p>
+                    </div>
+                  )}
+                </div>
+                {canEdit && (
+                  <div className="flex gap-2">
+                    <input
+                      value={newSubtask}
+                      onChange={e => setNewSubtask(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter') handleAddSubtask(); }}
+                      placeholder="Tambah child issue…"
+                      className="flex-1 bg-slate-800 border border-slate-700 text-white text-sm rounded-lg px-3 py-1.5 placeholder-slate-600 focus:outline-none focus:border-indigo-500"
+                    />
+                    <button
+                      onClick={handleAddSubtask}
+                      disabled={addingSubtask || !newSubtask.trim()}
+                      className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium disabled:opacity-50 transition-colors"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── Time Logs Tab ── */}
+            {activeTab === 'timelogs' && (
+              <div className="px-5 py-4">
+                {timeLoading && !timeLogs && (
+                  <div className="space-y-3 animate-pulse">
+                    <div className="h-16 rounded-xl bg-slate-800/60" />
+                    <div className="h-10 rounded-lg bg-slate-800/40" />
+                    <div className="h-10 rounded-lg bg-slate-800/40" />
+                  </div>
+                )}
+                {(!timeLoading || timeLogs) && <TimeTrackingSection
+                  timeLogs={timeLogs}
+                  loading={timeLoading}
+                  tick={clockTick}
+                  onClockIn={handleClockIn}
+                  onClockOut={handleClockOut}
+                  onManualLog={handleManualTimeLog}
+                  onDeleteLog={handleDeleteTimeLog}
+                />}
+              </div>
+            )}
+
+            {/* ── History Tab ── */}
+            {activeTab === 'history' && (
+              <div className="px-5 py-4">
+                <div className="flex items-center gap-2 mb-3">
+                  {histLoading && <span className="text-[10px] text-slate-600 animate-pulse">loading…</span>}
+                </div>
+                <div className="space-y-3">
+                  <div className="flex gap-3">
+                    <div className="flex flex-col items-center">
+                      <div className="w-6 h-6 rounded-full bg-green-500/20 flex items-center justify-center flex-shrink-0">
+                        <span className="text-green-400 text-[10px] font-bold">
+                          {task.creator?.name?.charAt(0).toUpperCase() ?? '?'}
+                        </span>
+                      </div>
+                      {history.length > 0 && <div className="w-px flex-1 bg-slate-800 mt-1" />}
+                    </div>
+                    <div className="flex-1 pb-3">
+                      <p className="text-xs text-slate-300">
+                        <span className="font-semibold text-green-400">{task.creator?.name ?? 'Unknown'}</span>
+                        {' '}membuat task ini
+                      </p>
+                      <p className="text-[11px] text-slate-600 mt-0.5 flex items-center gap-1">
+                        <Clock3 className="w-3 h-3" />
+                        {fmtTs(task.created_at)}
+                      </p>
+                    </div>
+                  </div>
+
+                  {history.map((entry, i) => {
+                    const isLast = i === history.length - 1;
+                    const name = entry.changed_by?.name ?? 'Unknown';
+                    return (
+                      <div key={entry.id} className="flex gap-3">
+                        <div className="flex flex-col items-center">
+                          <div className="w-6 h-6 rounded-full bg-indigo-500/20 flex items-center justify-center flex-shrink-0">
+                            <span className="text-indigo-400 text-[10px] font-bold">
+                              {name.charAt(0).toUpperCase()}
+                            </span>
+                          </div>
+                          {!isLast && <div className="w-px flex-1 bg-slate-800 mt-1" />}
+                        </div>
+                        <div className={`flex-1 ${!isLast ? 'pb-3' : ''}`}>
+                          <p className="text-xs text-slate-300">
+                            <span className="font-semibold text-indigo-400">{name}</span>
+                            {' '}mengubah task
+                          </p>
+                          <div className="mt-1.5">
+                            <div className="flex items-start gap-1.5 text-[11px]">
+                              <span className="text-slate-500 flex-shrink-0 capitalize">{entry.field}:</span>
+                              {entry.old_value && (
+                                <span className="text-slate-500 line-through truncate max-w-[80px]">{entry.old_value}</span>
+                              )}
+                              {entry.old_value && <span className="text-slate-600">→</span>}
+                              <span className="text-slate-300 font-medium truncate max-w-[80px]">{entry.new_value ?? '—'}</span>
+                            </div>
+                          </div>
+                          <p className="text-[11px] text-slate-600 mt-1 flex items-center gap-1">
+                            <Clock3 className="w-3 h-3" />
+                            {fmtTs(entry.created_at)}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  {!histLoading && history.length === 0 && (
+                    <div className="flex flex-col items-center py-6 gap-1.5">
+                      <History className="w-6 h-6 text-slate-700" />
+                      <p className="text-xs text-slate-600 font-medium">Belum ada perubahan</p>
+                      <p className="text-[11px] text-slate-700">Riwayat edit akan muncul di sini</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
           </>
         )}
@@ -1203,13 +1643,218 @@ function TaskDetailPanel({
   );
 }
 
+// ─── Time Tracking Section ────────────────────────────────────────────────────
+
+function fmtDuration(seconds: number): string {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = seconds % 60;
+  if (h > 0) return `${h}j ${m}m ${s}d`;
+  if (m > 0) return `${m}m ${s}d`;
+  return `${s}d`;
+}
+
+function TimeTrackingSection({
+  timeLogs, loading, tick, onClockIn, onClockOut, onManualLog, onDeleteLog,
+}: {
+  timeLogs: TaskTimeLogsResponse | null;
+  loading: boolean;
+  tick: number;
+  onClockIn: (manualTime?: string) => Promise<void>;
+  onClockOut: (manualTime?: string) => Promise<void>;
+  onManualLog: (clockIn: string, clockOut: string) => Promise<void>;
+  onDeleteLog: (logId: number) => Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [showManual, setShowManual] = useState(false);
+  const [manualMode, setManualMode] = useState<'clock-in' | 'clock-out' | 'add'>('add');
+  const [manualTime, setManualTime] = useState('');
+  const [manualIn, setManualIn] = useState('');
+  const [manualOut, setManualOut] = useState('');
+
+  const liveSec = timeLogs?.active_log
+    ? Math.floor((Date.now() - new Date(timeLogs.active_log.clock_in).getTime()) / 1000) + (tick * 0)
+    : 0;
+  const total = (timeLogs?.total_duration ?? 0) + liveSec;
+  const isActive = !!timeLogs?.active_log;
+
+  const handle = async (fn: () => Promise<void>) => {
+    setBusy(true);
+    try { await fn(); } finally { setBusy(false); }
+  };
+
+  const handleManualSubmit = async () => {
+    if (manualMode === 'clock-in') {
+      await handle(() => onClockIn(manualTime));
+    } else if (manualMode === 'clock-out') {
+      await handle(() => onClockOut(manualTime));
+    } else {
+      if (!manualIn || !manualOut) return;
+      await handle(() => onManualLog(manualIn, manualOut));
+      setManualIn('');
+      setManualOut('');
+    }
+    setShowManual(false);
+    setManualTime('');
+  };
+
+  if (loading) return (
+    <div className="text-xs text-slate-600 animate-pulse py-2">Memuat data waktu…</div>
+  );
+
+  return (
+    <div className="rounded-xl border border-slate-700/60 bg-slate-800/40 p-3 space-y-3">
+      {/* Total + clock buttons */}
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <p className="text-[11px] text-slate-500 mb-0.5">Total waktu</p>
+          <p className={`text-base font-mono font-semibold ${isActive ? 'text-green-400' : 'text-white'}`}>
+            {fmtDuration(total)}
+          </p>
+        </div>
+        <div className="flex items-center gap-1.5">
+          {isActive ? (
+            <button
+              onClick={() => handle(() => onClockOut())}
+              disabled={busy}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 text-xs font-medium transition-colors disabled:opacity-50"
+            >
+              <Square className="w-3 h-3 fill-current" />
+              Clock Out
+            </button>
+          ) : (
+            <button
+              onClick={() => handle(() => onClockIn())}
+              disabled={busy}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-green-500/10 border border-green-500/30 text-green-400 hover:bg-green-500/20 text-xs font-medium transition-colors disabled:opacity-50"
+            >
+              <Play className="w-3 h-3 fill-current" />
+              Clock In
+            </button>
+          )}
+          <button
+            onClick={() => { setShowManual(v => !v); setManualMode(isActive ? 'clock-out' : 'add'); }}
+            title="Input manual"
+            className="p-1.5 rounded-lg text-slate-500 hover:text-indigo-400 hover:bg-indigo-500/10 transition-colors"
+          >
+            <PenLine className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </div>
+
+      {/* Active session indicator */}
+      {isActive && (
+        <div className="flex items-center gap-2 text-xs text-green-400">
+          <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+          Sedang berjalan · {fmtDuration(liveSec)}
+        </div>
+      )}
+
+      {/* Manual input panel */}
+      {showManual && (
+        <div className="border border-slate-700 rounded-lg p-3 space-y-2.5 bg-slate-900/60">
+          <div className="flex gap-1.5">
+            {(['add', 'clock-in', 'clock-out'] as const).map(m => (
+              <button
+                key={m}
+                onClick={() => setManualMode(m)}
+                className={`text-[10px] px-2 py-1 rounded font-medium transition-colors ${manualMode === m ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-white'}`}
+              >
+                {m === 'add' ? 'Tambah Log' : m === 'clock-in' ? 'Clock In Manual' : 'Clock Out Manual'}
+              </button>
+            ))}
+          </div>
+          {manualMode === 'add' ? (
+            <div className="space-y-2">
+              <div>
+                <p className="text-[10px] text-slate-500 mb-1">Mulai</p>
+                <input type="datetime-local" value={manualIn} onChange={e => setManualIn(e.target.value)}
+                  className="w-full bg-slate-800 border border-slate-700 text-white text-xs rounded-lg px-2.5 py-1.5 [color-scheme:dark] focus:outline-none focus:border-indigo-500" />
+              </div>
+              <div>
+                <p className="text-[10px] text-slate-500 mb-1">Selesai</p>
+                <input type="datetime-local" value={manualOut} onChange={e => setManualOut(e.target.value)}
+                  className="w-full bg-slate-800 border border-slate-700 text-white text-xs rounded-lg px-2.5 py-1.5 [color-scheme:dark] focus:outline-none focus:border-indigo-500" />
+              </div>
+            </div>
+          ) : (
+            <div>
+              <p className="text-[10px] text-slate-500 mb-1">Waktu {manualMode === 'clock-in' ? 'masuk' : 'keluar'}</p>
+              <input type="datetime-local" value={manualTime} onChange={e => setManualTime(e.target.value)}
+                className="w-full bg-slate-800 border border-slate-700 text-white text-xs rounded-lg px-2.5 py-1.5 [color-scheme:dark] focus:outline-none focus:border-indigo-500" />
+            </div>
+          )}
+          <div className="flex gap-2 pt-1">
+            <button onClick={() => setShowManual(false)}
+              className="flex-1 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300 text-xs transition-colors">
+              Batal
+            </button>
+            <button onClick={handleManualSubmit} disabled={busy}
+              className="flex-1 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium transition-colors disabled:opacity-50">
+              {busy ? 'Menyimpan…' : 'Simpan'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Log history */}
+      {(timeLogs?.logs ?? []).length > 0 && (
+        <div className="space-y-1 border-t border-slate-700/50 pt-2.5">
+          <p className="text-[10px] font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Riwayat sesi</p>
+          <div className="max-h-40 overflow-y-auto space-y-1">
+            {timeLogs!.logs.map(log => (
+              <TimeLogRow key={log.id} log={log} onDelete={onDeleteLog} />
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TimeLogRow({ log, onDelete }: { log: TaskTimeLog; onDelete: (id: number) => Promise<void> }) {
+  const start = new Date(log.clock_in).toLocaleString('id-ID', {
+    day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
+  });
+  const isOpen = !log.clock_out;
+
+  return (
+    <div className="group flex items-center justify-between gap-2 text-[11px] py-1 px-1 rounded hover:bg-slate-800/50">
+      <div className="flex items-center gap-1.5 min-w-0">
+        {isOpen
+          ? <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse flex-shrink-0" />
+          : <Clock3 className="w-3 h-3 text-slate-600 flex-shrink-0" />
+        }
+        <span className="text-slate-400 truncate">{log.user?.name ?? 'Unknown'}</span>
+        <span className="text-slate-600">·</span>
+        <span className="text-slate-500 truncate">{start}</span>
+      </div>
+      <div className="flex items-center gap-1.5 flex-shrink-0">
+        <span className={`font-mono ${isOpen ? 'text-green-400' : 'text-slate-300'}`}>
+          {isOpen ? 'aktif' : fmtDuration(log.duration)}
+        </span>
+        {!isOpen && (
+          <button
+            onClick={() => onDelete(log.id)}
+            className="opacity-0 group-hover:opacity-100 p-0.5 text-slate-600 hover:text-red-400 transition-all"
+          >
+            <X className="w-3 h-3" />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 const panelLbl = 'block text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5';
 const panelSel = 'w-full bg-slate-800 border border-slate-700 text-white rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:border-indigo-500 transition-colors';
 
 // ─── Task Form Modal ──────────────────────────────────────────────────────────
 
+export type PendingImage = { filename: string; mimeType: string; data: string; preview: string };
+
 function TaskFormModal({
-  title, form, users, columns, colLabels, onChange, onSubmit, onClose, submitLabel,
+  title, form, users, columns, colLabels, onChange, onSubmit, onClose, submitLabel, saving = false,
 }: {
   title: string;
   form: CreateTaskRequest;
@@ -1217,86 +1862,323 @@ function TaskFormModal({
   columns: ColDef[];
   colLabels: Record<string, string>;
   onChange: (f: CreateTaskRequest) => void;
-  onSubmit: (e: React.FormEvent) => void;
+  onSubmit: (e: React.FormEvent, images: PendingImage[], subtasks: string[]) => void;
   onClose: () => void;
   submitLabel: string;
+  saving?: boolean;
 }) {
+  const [pendingImages, setPendingImages] = useState<PendingImage[]>([]);
+  const [newSubtask, setNewSubtask] = useState('');
+  const [subtaskList, setSubtaskList] = useState<string[]>([]);
+  const formFileInputRef = useRef<HTMLInputElement>(null);
+
+  // ESC to close modal
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', h);
+    return () => document.removeEventListener('keydown', h);
+  }, [onClose]);
+
+  const readFileAsPendingImage = (file: File): Promise<PendingImage> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = ev => {
+        const dataUrl = ev.target?.result as string;
+        resolve({
+          filename: file.name,
+          mimeType: file.type || 'application/octet-stream',
+          data: dataUrl.split(',')[1],
+          preview: dataUrl,
+        });
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+
+  const handleFormFileSelect = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    const results = await Promise.all(Array.from(files).map(readFileAsPendingImage));
+    setPendingImages(prev => [...prev, ...results]);
+    if (formFileInputRef.current) formFileInputRef.current.value = '';
+  };
+
+  const handlePaste = async (e: React.ClipboardEvent) => {
+    const items = Array.from(e.clipboardData.items);
+    const imageItems = items.filter(item => item.type.startsWith('image/'));
+    if (imageItems.length === 0) return;
+    e.preventDefault();
+    const files = imageItems.map(item => {
+      const f = item.getAsFile();
+      return f ? new File([f], `paste-${Date.now()}.png`, { type: item.type }) : null;
+    }).filter(Boolean) as File[];
+    const results = await Promise.all(files.map(readFileAsPendingImage));
+    setPendingImages(prev => [...prev, ...results]);
+  };
+
+  const addSubtask = () => {
+    const t = newSubtask.trim();
+    if (!t) return;
+    setSubtaskList(prev => [...prev, t]);
+    setNewSubtask('');
+  };
+
+  const pc = PRIORITY_CONFIG[form.priority ?? 'medium'] ?? PRIORITY_CONFIG.medium;
+
   return (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div className="max-h-[calc(100vh-2rem)] w-full max-w-lg overflow-y-auto rounded-2xl border border-slate-700 bg-slate-800 p-5 shadow-2xl sm:p-6"
-        onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between mb-5">
-          <h2 className="text-white font-semibold">{title}</h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-white transition-colors">
-            <X className="w-5 h-5" />
+    <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center z-50 p-3" onClick={onClose}>
+      <div
+        className="w-full max-w-3xl max-h-[calc(100vh-1.5rem)] flex flex-col rounded-xl border border-[#2a3147] bg-[#1a2035] shadow-2xl overflow-hidden"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* ── Header ── */}
+        <div className="flex items-center justify-between px-5 py-3.5 border-b border-[#2a3147] flex-shrink-0">
+          <div className="flex items-center gap-2 text-xs text-slate-500">
+            <SquarePlus className="w-4 h-4 text-indigo-400" />
+            <span className="text-slate-400 font-medium">{title}</span>
+          </div>
+          <button onClick={onClose} className="p-1 rounded-md text-slate-500 hover:text-white hover:bg-slate-700 transition-colors">
+            <X className="w-4 h-4" />
           </button>
         </div>
 
-        <form onSubmit={onSubmit} className="space-y-4">
-          <div>
-            <label className={lbl}>Title *</label>
-            <input required value={form.title}
-              onChange={e => onChange({ ...form, title: e.target.value })}
-              placeholder="What needs to be done?"
-              className={inp} />
+        {/* ── Body ── */}
+        <form onSubmit={e => onSubmit(e, pendingImages, subtaskList)} onPaste={handlePaste}
+          className="flex flex-col flex-1 min-h-0 overflow-hidden">
+
+          <div className="flex flex-1 min-h-0 overflow-hidden">
+            {/* Left: main content */}
+            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4 min-w-0">
+
+              {/* Summary / Title */}
+              <div>
+                <input
+                  required
+                  value={form.title}
+                  onChange={e => onChange({ ...form, title: e.target.value })}
+                  placeholder="Summary"
+                  className="w-full bg-transparent text-white text-lg font-semibold placeholder-slate-600 border-b border-[#2a3147] pb-2 focus:outline-none focus:border-indigo-500 transition-colors"
+                />
+              </div>
+
+              {/* Description */}
+              <div>
+                <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-2">Description</p>
+                <textarea
+                  value={form.description}
+                  onChange={e => onChange({ ...form, description: e.target.value })}
+                  onPaste={handlePaste}
+                  placeholder="Add a description… (Ctrl+V untuk tempel gambar)"
+                  rows={5}
+                  className="w-full bg-[#141925] border border-[#2a3147] rounded-lg px-3 py-2.5 text-sm text-slate-300 placeholder-slate-600 resize-none focus:outline-none focus:border-indigo-500 transition-colors"
+                />
+              </div>
+
+              {/* Attachments */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
+                    <Paperclip className="w-3 h-3 inline mr-1" />Attachments {pendingImages.length > 0 && `(${pendingImages.length})`}
+                  </p>
+                  <button type="button" onClick={() => formFileInputRef.current?.click()}
+                    className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300 transition-colors">
+                    <Upload className="w-3 h-3" /> Upload file
+                  </button>
+                </div>
+                <input ref={formFileInputRef} type="file" multiple className="hidden"
+                  onChange={e => handleFormFileSelect(e.target.files)} />
+                {pendingImages.length > 0 ? (
+                  <div className="flex flex-wrap gap-2"
+                    onDragOver={e => e.preventDefault()}
+                    onDrop={e => { e.preventDefault(); handleFormFileSelect(e.dataTransfer.files); }}>
+                    {pendingImages.map((img, i) => (
+                      <div key={i} className="relative group">
+                        {img.mimeType.startsWith('image/') ? (
+                          <img src={img.preview} className="h-20 w-20 object-cover rounded-lg border border-[#2a3147]" />
+                        ) : (
+                          <div className="flex flex-col items-center justify-center h-20 w-20 rounded-lg border border-[#2a3147] bg-slate-800 gap-1 px-1">
+                            <FileText className="w-6 h-6 text-slate-400" />
+                            <span className="text-[9px] text-slate-500 truncate w-full text-center">{img.filename}</span>
+                          </div>
+                        )}
+                        <button type="button"
+                          onClick={() => setPendingImages(prev => prev.filter((_, j) => j !== i))}
+                          className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-red-500 text-white items-center justify-center hidden group-hover:flex">
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ))}
+                    <button type="button" onClick={() => formFileInputRef.current?.click()}
+                      className="h-20 w-20 rounded-lg border-2 border-dashed border-[#2a3147] hover:border-slate-600 flex flex-col items-center justify-center text-slate-600 hover:text-slate-400 text-xs text-center leading-tight transition-colors gap-1">
+                      <Upload className="w-4 h-4" />
+                      <span>Add</span>
+                    </button>
+                  </div>
+                ) : (
+                  <div
+                    className="border-2 border-dashed border-[#2a3147] hover:border-slate-600 rounded-lg p-4 text-center cursor-pointer transition-colors"
+                    onClick={() => formFileInputRef.current?.click()}
+                    onDragOver={e => e.preventDefault()}
+                    onDrop={e => { e.preventDefault(); handleFormFileSelect(e.dataTransfer.files); }}
+                  >
+                    <Upload className="w-5 h-5 text-slate-600 mx-auto mb-1" />
+                    <p className="text-xs text-slate-600">Klik, drag file, atau paste gambar (Ctrl+V)</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Child Issues (Subtasks) */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
+                    Child Issues {subtaskList.length > 0 && <span className="text-slate-600 normal-case font-normal">({subtaskList.length})</span>}
+                  </p>
+                </div>
+
+                {/* Subtask rows — JIRA child issue style */}
+                {subtaskList.length > 0 && (
+                  <div className="mb-3 rounded-lg border border-[#2a3147] overflow-hidden divide-y divide-[#2a3147]">
+                    {subtaskList.map((st, i) => (
+                      <div key={i} className="flex items-center gap-2.5 px-3 py-2 bg-[#141925] hover:bg-[#1a2035] group transition-colors">
+                        {/* Issue type icon (subtask) */}
+                        <div className="w-4 h-4 rounded-sm bg-indigo-500/20 border border-indigo-500/40 flex items-center justify-center flex-shrink-0">
+                          <ListTodo className="w-2.5 h-2.5 text-indigo-400" />
+                        </div>
+                        {/* Summary */}
+                        <span className="flex-1 text-sm text-slate-300 truncate">{st}</span>
+                        {/* Status badge */}
+                        <span className="text-[9px] font-bold uppercase tracking-wide text-slate-500 bg-slate-700/60 px-1.5 py-0.5 rounded flex-shrink-0">
+                          Open
+                        </span>
+                        {/* Delete */}
+                        <button
+                          type="button"
+                          onClick={() => setSubtaskList(prev => prev.filter((_, j) => j !== i))}
+                          className="opacity-0 group-hover:opacity-100 p-0.5 text-slate-600 hover:text-red-400 transition-all flex-shrink-0"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Create child issue input */}
+                <button
+                  type="button"
+                  onClick={() => document.getElementById('subtask-input')?.focus()}
+                  className="w-full text-left text-xs text-slate-500 hover:text-slate-300 flex items-center gap-2 py-1.5 transition-colors"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  Create child issue
+                </button>
+                <div className="flex gap-2 mt-1">
+                  <input
+                    id="subtask-input"
+                    type="text"
+                    value={newSubtask}
+                    onChange={e => setNewSubtask(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addSubtask(); } }}
+                    placeholder="What needs to be done?"
+                    className="flex-1 bg-[#141925] border border-[#2a3147] rounded-lg px-3 py-2 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 transition-colors"
+                  />
+                  <button type="button" onClick={addSubtask}
+                    disabled={!newSubtask.trim()}
+                    className="px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm disabled:opacity-40 transition-colors">
+                    <Plus className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Right: metadata sidebar */}
+            <div className="w-56 flex-shrink-0 border-l border-[#2a3147] overflow-y-auto px-4 py-4 space-y-4">
+
+              {/* Status */}
+              <div>
+                <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Status</p>
+                <select
+                  value={form.status}
+                  onChange={e => onChange({ ...form, status: e.target.value as TaskStatus })}
+                  className={jinp}
+                >
+                  {columns.map(c => (
+                    <option key={c.key} value={c.key}>{colLabels[c.key] || c.label}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Assignee */}
+              <div>
+                <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Assignee</p>
+                <select
+                  value={form.assignee_id ?? ''}
+                  onChange={e => onChange({ ...form, assignee_id: e.target.value ? Number(e.target.value) : undefined })}
+                  className={jinp}
+                >
+                  <option value="">Unassigned</option>
+                  {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                </select>
+              </div>
+
+              {/* Priority */}
+              <div>
+                <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Priority</p>
+                <select
+                  value={form.priority}
+                  onChange={e => onChange({ ...form, priority: e.target.value as TaskPriority })}
+                  className={jinp}
+                >
+                  {PRIORITY_OPTIONS.map(({ value, label }) => (
+                    <option key={value} value={value}>{label}</option>
+                  ))}
+                </select>
+                <div className={`mt-1.5 flex items-center gap-1.5 text-xs ${pc.text}`}>
+                  <span>{pc.icon}</span>
+                  <span>{pc.label} priority</span>
+                </div>
+              </div>
+
+              {/* Category */}
+              <div>
+                <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Category</p>
+                <input
+                  type="text"
+                  value={form.category ?? ''}
+                  onChange={e => onChange({ ...form, category: e.target.value })}
+                  placeholder="e.g. Bug Fix, Development"
+                  className={jinp}
+                />
+              </div>
+
+              {/* Due Date */}
+              <div>
+                <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Due Date</p>
+                <input
+                  type="date"
+                  value={form.due_date ?? ''}
+                  onChange={e => onChange({ ...form, due_date: e.target.value })}
+                  className={`${jinp} [color-scheme:dark]`}
+                />
+              </div>
+
+              {/* Tip */}
+              <div className="pt-2 border-t border-[#2a3147]">
+                <p className="text-[10px] text-slate-600 leading-relaxed">
+                  Tip: drag &amp; drop, klik Upload, atau paste gambar (<kbd className="bg-slate-700 text-slate-500 px-1 rounded text-[9px] font-mono">Ctrl+V</kbd>)
+                </p>
+              </div>
+            </div>
           </div>
 
-          <div>
-            <label className={lbl}>Description</label>
-            <textarea value={form.description}
-              onChange={e => onChange({ ...form, description: e.target.value })}
-              placeholder="Optional details…" rows={2}
-              className={`${inp} resize-none`} />
-          </div>
-
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div>
-              <label className={lbl}><UserIcon className="w-3 h-3 inline mr-1" />Assign to</label>
-              <select value={form.assignee_id ?? ''}
-                onChange={e => onChange({ ...form, assignee_id: e.target.value ? Number(e.target.value) : undefined })}
-                className={inp}>
-                <option value="">— Unassigned —</option>
-                {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-              </select>
-            </div>
-
-            <div>
-              <label className={lbl}><Calendar className="w-3 h-3 inline mr-1" />Due Date</label>
-              <input type="date" value={form.due_date ?? ''}
-                onChange={e => onChange({ ...form, due_date: e.target.value })}
-                className={`${inp} [color-scheme:dark]`} />
-            </div>
-
-            <div>
-              <label className={lbl}>Status</label>
-              <select value={form.status}
-                onChange={e => onChange({ ...form, status: e.target.value as TaskStatus })}
-                className={inp}>
-                {columns.map(c => (
-                  <option key={c.key} value={c.key}>{colLabels[c.key] || c.label}</option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className={lbl}><Flag className="w-3 h-3 inline mr-1" />Priority</label>
-              <select value={form.priority}
-                onChange={e => onChange({ ...form, priority: e.target.value as TaskPriority })}
-                className={inp}>
-                {PRIORITY_OPTIONS.map(({ value, label }) => (
-                  <option key={value} value={value}>{label}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div className="flex flex-col gap-2 pt-1 sm:flex-row">
+          {/* ── Footer ── */}
+          <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-[#2a3147] flex-shrink-0">
             <button type="button" onClick={onClose}
-              className="flex-1 py-2.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300 text-sm transition-colors">
+              className="px-4 py-2 rounded-lg bg-transparent hover:bg-slate-700 text-slate-400 hover:text-white text-sm transition-colors">
               Cancel
             </button>
-            <button type="submit"
-              className="flex-1 py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium transition-colors">
+            <button type="submit" disabled={saving}
+              className="flex items-center gap-2 px-5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-60 disabled:cursor-not-allowed text-white text-sm font-medium transition-colors">
+              {saving && <Spinner className="w-3.5 h-3.5" />}
               {submitLabel}
             </button>
           </div>
@@ -1306,8 +2188,9 @@ function TaskFormModal({
   );
 }
 
-const inp = "w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2.5 text-sm text-white placeholder-slate-500 transition-colors focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20";
-const lbl = "block text-xs font-medium text-slate-400 mb-1.5";
+const inp  = "w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2.5 text-sm text-white placeholder-slate-500 transition-colors focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20";
+const lbl  = "block text-xs font-medium text-slate-400 mb-1.5";
+const jinp = "w-full rounded-md border border-[#2a3147] bg-[#141925] px-2.5 py-1.5 text-xs text-slate-300 placeholder-slate-600 focus:outline-none focus:border-indigo-500 transition-colors";
 
 // ─── Members Panel ────────────────────────────────────────────────────────────
 
@@ -1324,6 +2207,13 @@ function MembersPanel({
   const [selectedUserId, setSelectedUserId] = useState<number | ''>('');
   const [adding,     setAdding]     = useState(false);
   const [removingId, setRemovingId] = useState<number | null>(null);
+
+  // ESC to close
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', h);
+    return () => document.removeEventListener('keydown', h);
+  }, [onClose]);
 
   const memberUserIds = new Set(members.map(m => m.user_id));
   const nonMembers    = users.filter(u => !memberUserIds.has(u.id));
@@ -1385,7 +2275,7 @@ function MembersPanel({
           {members.map(m => (
             <div key={m.id} className="flex flex-col gap-3 rounded-xl bg-slate-900/50 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex min-w-0 items-center gap-3">
-                <div className="w-8 h-8 rounded-full bg-indigo-600/30 flex items-center justify-center flex-shrink-0">
+                <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center flex-shrink-0">
                   <span className="text-indigo-300 text-sm font-bold">
                     {(m.user?.name ?? '?').charAt(0).toUpperCase()}
                   </span>
