@@ -2,7 +2,8 @@ name: Deploy to Production
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
   workflow_dispatch:
 
 jobs:
@@ -15,31 +16,41 @@ jobs:
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          port: 22
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.PORT }}
           script_stop: true
           script: |
             set -e
+
             APP_DIR="/root/nexora-node/apps/nextools"
 
-            echo "📦 Pulling latest code from GitHub..."
+            echo "📦 Opening app directory..."
             cd $APP_DIR
+
+            echo "📥 Pull latest source..."
             git fetch origin main
             git reset --hard origin/main
 
-            echo "🔨 Building frontend..."
+            echo "🔨 Build frontend..."
             cd $APP_DIR/auth-client
-            npm ci --prefer-offline
+
+            if [ -f package-lock.json ]; then
+              npm ci --prefer-offline
+            else
+              npm install
+            fi
+
             npm run build
 
-            echo "🔄 Restarting containers..."
+            echo "🐳 Rebuild docker containers..."
             cd $APP_DIR
-            # Restart backend (picks up new Go source from mounted volume)
-            docker compose restart nextools-backend
-            # Restart frontend (picks up new dist from mounted volume)
-            docker compose restart nextools-frontend
+
+            docker compose up -d --build
+
+            echo "🧹 Cleanup old images..."
+            docker image prune -f
 
             echo "✅ Deploy complete!"
             echo "🌐 https://nextools.nexoratech.co"
@@ -47,9 +58,9 @@ jobs:
       - name: Notify success
         if: success()
         run: |
-          echo "✅ Deployed successfully to https://nextools.nexoratech.co"
+          echo "✅ Deployment successful"
 
       - name: Notify failure
         if: failure()
         run: |
-          echo "❌ Deployment failed. Check logs above."
+          echo "❌ Deployment failed"
