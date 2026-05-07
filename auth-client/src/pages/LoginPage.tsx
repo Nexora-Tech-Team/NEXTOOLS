@@ -38,7 +38,7 @@ export default function LoginPage() {
             alt="Nexora"
             className="mx-auto mb-4 h-14 w-auto object-contain sm:mb-5 sm:h-16"
           />
-          <h1 className="text-xl font-bold text-white sm:text-2xl">Nex PM Tools</h1>
+          <h1 className="text-xl font-bold text-white sm:text-2xl">NexTool</h1>
           <p className="mt-1 text-sm text-slate-400">Sign in to your account</p>
         </div>
 
