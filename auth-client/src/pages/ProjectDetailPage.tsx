@@ -1206,21 +1206,19 @@ function TaskDetailPanel({
     const imageItems = items.filter(item => item.type.startsWith('image/'));
     if (imageItems.length === 0) return;
     e.preventDefault();
-    for (const item of imageItems) {
-      const file = item.getAsFile();
-      if (!file) continue;
-      const reader = new FileReader();
-      reader.onload = async ev => {
-        const dataUrl = ev.target?.result as string;
-        const base64 = dataUrl.split(',')[1];
-        try {
-          await tasksApi.createAttachment(task.id, `paste-${Date.now()}.png`, item.type, base64);
-          await loadAttachments(task.id);
-          showToast('Gambar dilampirkan!');
-        } catch { showToast('Gagal lampirkan gambar', 'error'); }
-      };
-      reader.readAsDataURL(file);
-    }
+    const best = imageItems.find(i => i.type === 'image/png') ?? imageItems[0];
+    const file = best.getAsFile();
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async ev => {
+      const base64 = (ev.target?.result as string).split(',')[1];
+      try {
+        await tasksApi.createAttachment(task.id, `paste-${Date.now()}.png`, 'image/png', base64);
+        await loadAttachments(task.id);
+        showToast('Gambar dilampirkan!');
+      } catch { showToast('Gagal lampirkan gambar', 'error'); }
+    };
+    reader.readAsDataURL(file);
   };
 
   const fieldChange = async (payload: UpdateTaskRequest) => {
@@ -1907,12 +1905,13 @@ function TaskFormModal({
     const imageItems = items.filter(item => item.type.startsWith('image/'));
     if (imageItems.length === 0) return;
     e.preventDefault();
-    const files = imageItems.map(item => {
-      const f = item.getAsFile();
-      return f ? new File([f], `paste-${Date.now()}.png`, { type: item.type }) : null;
-    }).filter(Boolean) as File[];
-    const results = await Promise.all(files.map(readFileAsPendingImage));
-    setPendingImages(prev => [...prev, ...results]);
+    // Prefer png; Mac clipboard often has both png + tiff for the same screenshot
+    const best = imageItems.find(i => i.type === 'image/png') ?? imageItems[0];
+    const f = best.getAsFile();
+    if (!f) return;
+    const file = new File([f], `paste-${Date.now()}.png`, { type: 'image/png' });
+    const result = await readFileAsPendingImage(file);
+    setPendingImages(prev => [...prev, result]);
   };
 
   const addSubtask = () => {
