@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   FolderKanban, CheckCircle2, Clock, AlertCircle, Loader2,
   ArrowRight, RefreshCw, TrendingUp, Users, ShieldAlert,
-  LayoutDashboard, Flame, Activity, Timer, ChevronLeft, ChevronRight,
+  Flame, Activity, Timer, ChevronLeft, ChevronRight,
   Users2, ChevronDown, ChevronUp, Download,
 } from 'lucide-react';
 import { DashboardStatSkeleton, DashboardRowSkeleton } from '../components/Skeleton';
@@ -97,19 +97,6 @@ function groupBy<T>(arr: T[], key: (t: T) => string) {
 type WlMode = 'week' | 'month';
 
 // ─── Excel export ─────────────────────────────────────────────────────────────
-
-function fmtDateTime(iso: string) {
-  return new Date(iso).toLocaleString('id-ID', {
-    day: '2-digit', month: '2-digit', year: 'numeric',
-    hour: '2-digit', minute: '2-digit',
-  });
-}
-
-function secsToHHMM(sec: number) {
-  const h = Math.floor(sec / 3600);
-  const m = Math.floor((sec % 3600) / 60);
-  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-}
 
 const HARI = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
 

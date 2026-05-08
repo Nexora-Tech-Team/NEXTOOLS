@@ -3,7 +3,7 @@ import { BoardColumnSkeleton, Spinner } from '../components/Skeleton';
 import { useToast } from '../components/Toast';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
-  ArrowLeft, Plus, X, Calendar, User as UserIcon, Flag, Trash2,
+  ArrowLeft, Plus, X, Calendar, User as UserIcon, Trash2,
   ChevronDown, AlertCircle, Search, ChevronLeft, Check, GripVertical,
   SquarePlus, History, Clock3, Pencil, Users, Play, Square, Timer,
   Paperclip, ListTodo, PenLine, Upload, FileText,
@@ -2187,8 +2187,6 @@ function TaskFormModal({
   );
 }
 
-const inp  = "w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2.5 text-sm text-white placeholder-slate-500 transition-colors focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20";
-const lbl  = "block text-xs font-medium text-slate-400 mb-1.5";
 const jinp = "w-full rounded-md border border-[#2a3147] bg-[#141925] px-2.5 py-1.5 text-xs text-slate-300 placeholder-slate-600 focus:outline-none focus:border-indigo-500 transition-colors";
 
 // ─── Members Panel ────────────────────────────────────────────────────────────
