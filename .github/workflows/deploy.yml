@@ -10,87 +10,63 @@ jobs:
   deploy:
     name: Deploy to VPS
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
 
     steps:
       - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1.0.3
+        uses: appleboy/ssh-action@v1.2.0
         with:
-          host: ${{ secrets.HOST }}
-          username: ${{ secrets.USERNAME }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          port: ${{ secrets.PORT }}
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT }}
           script_stop: true
+          timeout: 120s
           command_timeout: 30m
+          debug: true
           script: |
             set -e
 
             APP_DIR="/root/nexora-node/apps/nextools"
 
             echo "====================================="
-            echo "🚀 STARTING DEPLOYMENT"
+            echo "🚀 STARTING NEXTOOLS DEPLOYMENT"
             echo "====================================="
 
-            echo ""
             echo "📂 Entering application directory..."
-            cd $APP_DIR
+            cd "$APP_DIR"
 
-            echo ""
             echo "📥 Pulling latest source from GitHub..."
             git fetch origin main
             git reset --hard origin/main
 
-            echo ""
             echo "🖥️ System memory info:"
             free -h
 
-            echo ""
             echo "🔨 Building frontend..."
-            cd $APP_DIR/auth-client
+            cd "$APP_DIR/auth-client"
 
-            echo ""
             echo "📦 Installing dependencies..."
-
             if [ -f package-lock.json ]; then
               npm ci --prefer-offline
             else
               npm install
             fi
 
-            echo ""
             echo "⚙️ Setting Node memory..."
             export NODE_OPTIONS="--max-old-space-size=2048"
 
-            echo ""
             echo "🏗️ Running production build..."
-            npm run build -- --debug
+            npm run build
 
-            echo ""
             echo "🐳 Rebuilding Docker containers..."
-            cd $APP_DIR
-
+            cd "$APP_DIR"
             docker compose up -d --build
 
-            echo ""
             echo "🧹 Cleaning old Docker images..."
             docker image prune -f
 
-            echo ""
             echo "📦 Running containers:"
-            docker ps
+            docker compose ps
 
-            echo ""
-            echo "====================================="
-            echo "✅ DEPLOY SUCCESS"
-            echo "🌐 https://nextools.nexoratech.co"
-            echo "====================================="
-
-      - name: Notify success
-        if: success()
-        run: |
-          echo "✅ Deployment successful"
-
-      - name: Notify failure
-        if: failure()
-        run: |
-          echo "❌ Deployment failed"
+            echo "✅ DEPLOY NEXTOOLS SUCCESS"
