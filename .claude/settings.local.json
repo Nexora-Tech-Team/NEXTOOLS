@@ -41,7 +41,19 @@
       "Bash(npx create-next-app@latest devtrack --typescript --tailwind --eslint --app --no-src-dir --import-alias \"@/*\" --yes)",
       "Bash(node -e \"let d='';process.stdin.on\\('data',c=>d+=c\\);process.stdin.on\\('end',\\(\\)=>console.log\\(JSON.stringify\\(JSON.parse\\(d\\),null,2\\)\\)\\)\")",
       "Bash(node -e \"let d='';process.stdin.on\\('data',c=>d+=c\\);process.stdin.on\\('end',\\(\\)=>{ const r=JSON.parse\\(d\\); r.data?.forEach\\(m=>console.log\\(m.user?.name,'role:',m.role\\)\\) }\\)\")",
-      "Bash(findstr \":5173\")"
+      "Bash(findstr \":5173\")",
+      "Bash(git -C /Users/harmanto/Documents/Code/PROD/NEXTOOLS add CLAUDE.md)",
+      "Bash(git -C /Users/harmanto/Documents/Code/PROD/NEXTOOLS commit -m ' *)",
+      "Bash(sed -i '' 's|api.GET\\(\"/me/time-logs\", taskTimeLogHandler.GetMyLogs\\)|api.GET\\(\"/me/time-logs\", taskTimeLogHandler.GetMyLogs\\)\\\\n\\\\t\\\\tapi.GET\\(\"/me/active-log\", taskTimeLogHandler.GetMyActiveLog\\)|' /Users/harmanto/Documents/Code/PROD/NEXTOOLS/auth-service/cmd/main.go)",
+      "Bash(sed -i '' 's|api.GET\\(\"/time-logs\", taskTimeLogHandler.GetAllLogs\\)|api.GET\\(\"/time-logs\", taskTimeLogHandler.GetAllLogs\\)\\\\n\\\\t\\\\tapi.GET\\(\"/projects/:id/active-logs\", taskTimeLogHandler.GetActiveByProject\\)|' /Users/harmanto/Documents/Code/PROD/NEXTOOLS/auth-service/cmd/main.go)",
+      "Bash(git -C /Users/harmanto/Documents/Code/PROD/NEXTOOLS status)",
+      "Bash(git -C /Users/harmanto/Documents/Code/PROD/NEXTOOLS diff auth-client/src/pages/ProjectDetailPage.tsx)",
+      "Bash(git -C /Users/harmanto/Documents/Code/PROD/NEXTOOLS add auth-client/src/api/tasks.ts auth-client/src/pages/ProjectDetailPage.tsx auth-service/cmd/main.go auth-service/internal/handler/task_time_log_handler.go auth-service/internal/repository/task_time_log_repository.go auth-service/internal/service/task_time_log_service.go)",
+      "Bash(git *)",
+      "Bash(gh pr *)",
+      "Bash(gh auth *)",
+      "Bash(node_modules/.bin/prisma db *)",
+      "Bash(xargs ls)"
     ]
   }
 }
