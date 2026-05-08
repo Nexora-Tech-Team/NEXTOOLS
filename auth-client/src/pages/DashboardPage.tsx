@@ -201,6 +201,7 @@ export default function DashboardPage() {
   const [teamLogs,    setTeamLogs]    = useState<TaskTimeLog[]>([]);
   const [teamLoading, setTeamLoading] = useState(false);
   const [wlExpanded,  setWlExpanded]  = useState<number | null>(null); // expanded user id
+  const [activeTab,   setActiveTab]   = useState<'overview' | 'workload'>('overview');
 
   const load = useCallback(async (isRefresh = false) => {
     if (isRefresh) {
@@ -378,6 +379,23 @@ export default function DashboardPage() {
           </div>
         </div>
 
+        {/* ── Tabs ── */}
+        <div className="flex rounded-xl border border-slate-800 bg-slate-900 p-1 w-fit">
+          {([['overview', 'Overview'], ['workload', 'Team Workload']] as const).map(([id, label]) => (
+            <button
+              key={id}
+              onClick={() => setActiveTab(id)}
+              className={`rounded-lg px-4 py-1.5 text-sm font-medium transition-colors ${
+                activeTab === id
+                  ? 'bg-indigo-600 text-white'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
         {/* ── Project context banner (saat project dipilih) ── */}
         {selectedProj && (
           <div className="flex flex-col gap-3 rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
@@ -441,11 +459,10 @@ export default function DashboardPage() {
           />
         </div>
 
-        {/* ── Row 2: Project Health + Team Workload ── */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        {activeTab === 'overview' && (<>
 
-          {/* Project Health (2/3) */}
-          <div className="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm shadow-black/30">
+        {/* ── Row 2: Project Health ── */}
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm shadow-black/30">
             <SectionHeader
               icon={<TrendingUp className="w-4 h-4 text-indigo-400" />}
               title={selectedId ? 'Detail Project' : 'Status Setiap Project'}
@@ -543,72 +560,6 @@ export default function DashboardPage() {
             )}
           </div>
 
-          {/* Team Workload (1/3) */}
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm shadow-black/30">
-            <SectionHeader icon={<Users className="w-4 h-4 text-purple-400" />} title="Beban Kerja Tim" />
-
-            <div className="mt-4 space-y-4">
-              {activeUsers.map(u => {
-                const userTasks = assigneeGroups[String(u.id)] ?? [];
-                const uDone   = userTasks.filter(t => t.status === 'done').length;
-                const uActive = userTasks.filter(t => t.status === 'in_progress').length;
-                const uOverdue = userTasks.filter(isOverdue).length;
-                const uPct    = userTasks.length ? Math.round((uDone / userTasks.length) * 100) : 0;
-
-                return (
-                  <div key={u.id} className="border border-slate-800 rounded-xl p-3.5">
-                    <div className="flex items-center gap-2.5 mb-2.5">
-                      <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center flex-shrink-0">
-                        <span className="text-indigo-300 text-sm font-bold">{u.name.charAt(0).toUpperCase()}</span>
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-white text-sm font-medium truncate">{u.name}</p>
-                        <p className="text-slate-500 text-xs capitalize">{u.role}</p>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-3 gap-2 mb-2.5">
-                      <div className="text-center">
-                        <p className="text-white font-bold text-base">{userTasks.length}</p>
-                        <p className="text-slate-600 text-[10px]">Total</p>
-                      </div>
-                      <div className="text-center">
-                        <p className="text-yellow-400 font-bold text-base">{uActive}</p>
-                        <p className="text-slate-600 text-[10px]">Aktif</p>
-                      </div>
-                      <div className="text-center">
-                        <p className={`font-bold text-base ${uOverdue > 0 ? 'text-red-400' : 'text-slate-600'}`}>{uOverdue}</p>
-                        <p className="text-slate-600 text-[10px]">Overdue</p>
-                      </div>
-                    </div>
-
-                    {userTasks.length > 0 && (
-                      <>
-                        <div className="flex justify-between text-xs text-slate-500 mb-1">
-                          <span>Completion</span>
-                          <span className={uPct === 100 ? 'text-green-400' : 'text-slate-300'}>{uPct}%</span>
-                        </div>
-                        <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                          <div
-                            className={`h-full rounded-full ${uPct === 100 ? 'bg-green-500' : 'bg-indigo-500'}`}
-                            style={{ width: `${uPct}%` }}
-                          />
-                        </div>
-                      </>
-                    )}
-
-                    {userTasks.length === 0 && (
-                      <p className="text-slate-600 text-xs text-center py-1">Tidak ada task</p>
-                    )}
-                  </div>
-                );
-              })}
-
-              {activeUsers.length === 0 && (
-                <EmptyState label={selectedId ? 'Tidak ada assignee di project ini' : 'Belum ada user'} action="Kelola users →" onClick={() => navigate('/users')} />
-              )}
-            </div>
-          </div>
         </div>
 
         {/* ── Row 3: Status Distribution + Priority ── */}
@@ -998,90 +949,68 @@ export default function DashboardPage() {
           )}
         </div>
 
-        {/* ── Row 6: Time Tracking Calendar ── */}
+        </>)}
+
+        {activeTab === 'workload' && (<>
+
+        {/* ── Beban Kerja Tim ── */}
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm shadow-black/30">
-          <div className="flex items-center justify-between mb-5">
-            <SectionHeader icon={<Timer className="w-4 h-4 text-green-400" />} title="Time Tracking" />
-            <div className="flex items-center gap-2">
-              <button onClick={() => setCalMonth(m => {
-                const d = new Date(m.year, m.month - 1);
-                return { year: d.getFullYear(), month: d.getMonth() };
-              })} className="p-1.5 rounded-lg text-slate-500 hover:text-white hover:bg-slate-800 transition-colors">
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-              <span className="text-sm font-semibold text-slate-300 w-32 text-center">
-                {new Date(calMonth.year, calMonth.month).toLocaleDateString('id-ID', { month: 'long', year: 'numeric' })}
-              </span>
-              <button onClick={() => setCalMonth(m => {
-                const d = new Date(m.year, m.month + 1);
-                return { year: d.getFullYear(), month: d.getMonth() };
-              })} className="p-1.5 rounded-lg text-slate-500 hover:text-white hover:bg-slate-800 transition-colors">
-                <ChevronRight className="w-4 h-4" />
-              </button>
-              {timeLoading && <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-600" />}
-            </div>
-          </div>
-
-          <TimeCalendar
-            year={calMonth.year}
-            month={calMonth.month}
-            logs={timeLogs}
-            selectedDay={calSelDay}
-            onSelectDay={setCalSelDay}
-          />
-
-          {/* Detail panel for selected day */}
-          {calSelDay && (() => {
-            const dayLogs = timeLogs.filter(l => l.clock_in.substring(0, 10) === calSelDay);
-            const totalSec = dayLogs.reduce((s, l) => s + l.duration, 0);
-            return (
-              <div className="mt-4 border-t border-slate-800 pt-4">
-                <div className="flex items-center justify-between mb-3">
-                  <p className="text-sm font-semibold text-slate-300">
-                    {new Date(calSelDay + 'T00:00:00').toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long' })}
-                  </p>
-                  <span className="text-xs font-mono text-green-400 font-semibold">{fmtDur(totalSec)} total</span>
-                </div>
-                {dayLogs.length === 0 ? (
-                  <p className="text-xs text-slate-600">Tidak ada aktivitas pada hari ini.</p>
-                ) : (
-                  <div className="space-y-2">
-                    {dayLogs.map(log => {
-                      const ci = new Date(log.clock_in);
-                      const co = log.clock_out ? new Date(log.clock_out) : null;
-                      const isActive = !log.clock_out;
-                      return (
-                        <div key={log.id} className="flex items-center gap-3 bg-slate-800/50 rounded-xl px-4 py-3">
-                          <div className={`w-2 h-2 rounded-full flex-shrink-0 ${isActive ? 'bg-green-400 animate-pulse' : 'bg-slate-600'}`} />
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm text-slate-200 font-medium truncate">
-                              {log.task_title || `Task #${log.task_id}`}
-                            </p>
-                            {log.project_name && (
-                              <p className="text-[11px] text-slate-500 truncate">{log.project_name}</p>
-                            )}
-                          </div>
-                          <div className="text-right flex-shrink-0">
-                            <p className="text-xs text-slate-400 font-mono">
-                              {ci.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
-                              {' → '}
-                              {co ? co.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) : <span className="text-green-400">Aktif</span>}
-                            </p>
-                            <p className={`text-xs font-mono font-semibold mt-0.5 ${isActive ? 'text-green-400' : 'text-slate-300'}`}>
-                              {isActive ? 'Berjalan' : fmtDur(log.duration)}
-                            </p>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
+          <SectionHeader icon={<Users className="w-4 h-4 text-purple-400" />} title="Beban Kerja Tim" />
+          <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+            {activeUsers.length === 0 ? (
+              <div className="col-span-full">
+                <EmptyState label={selectedId ? 'Tidak ada assignee di project ini' : 'Belum ada user'} action="Kelola users →" onClick={() => navigate('/users')} />
               </div>
-            );
-          })()}
+            ) : activeUsers.map(u => {
+              const userTasks = assigneeGroups[String(u.id)] ?? [];
+              const uDone   = userTasks.filter(t => t.status === 'done').length;
+              const uActive = userTasks.filter(t => t.status === 'in_progress').length;
+              const uOverdue = userTasks.filter(isOverdue).length;
+              const uPct    = userTasks.length ? Math.round((uDone / userTasks.length) * 100) : 0;
+              return (
+                <div key={u.id} className="border border-slate-800 rounded-xl p-3.5">
+                  <div className="flex items-center gap-2.5 mb-2.5">
+                    <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center flex-shrink-0">
+                      <span className="text-indigo-300 text-sm font-bold">{u.name.charAt(0).toUpperCase()}</span>
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-white text-sm font-medium truncate">{u.name}</p>
+                      <p className="text-slate-500 text-xs capitalize">{u.role}</p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 mb-2.5">
+                    <div className="text-center">
+                      <p className="text-white font-bold text-base">{userTasks.length}</p>
+                      <p className="text-slate-600 text-[10px]">Total</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-yellow-400 font-bold text-base">{uActive}</p>
+                      <p className="text-slate-600 text-[10px]">Aktif</p>
+                    </div>
+                    <div className="text-center">
+                      <p className={`font-bold text-base ${uOverdue > 0 ? 'text-red-400' : 'text-slate-600'}`}>{uOverdue}</p>
+                      <p className="text-slate-600 text-[10px]">Overdue</p>
+                    </div>
+                  </div>
+                  {userTasks.length > 0 && (
+                    <>
+                      <div className="flex justify-between text-xs text-slate-500 mb-1">
+                        <span>Completion</span>
+                        <span className={uPct === 100 ? 'text-green-400' : 'text-slate-300'}>{uPct}%</span>
+                      </div>
+                      <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                        <div className={`h-full rounded-full ${uPct === 100 ? 'bg-green-500' : 'bg-indigo-500'}`} style={{ width: `${uPct}%` }} />
+                      </div>
+                    </>
+                  )}
+                  {userTasks.length === 0 && <p className="text-slate-600 text-xs text-center py-1">Tidak ada task</p>}
+                </div>
+              );
+            })}
+          </div>
         </div>
 
-        {/* ── Row 7: Team Workload ── */}
+        {/* ── Team Workload (Time Logs) ── */}
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm shadow-black/30">
           {/* Header */}
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-5">
@@ -1284,6 +1213,90 @@ export default function DashboardPage() {
             );
           })()}
         </div>
+
+        {/* ── Time Tracking ── */}
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm shadow-black/30">
+          <div className="flex items-center justify-between mb-5">
+            <SectionHeader icon={<Timer className="w-4 h-4 text-green-400" />} title="Time Tracking" />
+            <div className="flex items-center gap-2">
+              <button onClick={() => setCalMonth(m => {
+                const d = new Date(m.year, m.month - 1);
+                return { year: d.getFullYear(), month: d.getMonth() };
+              })} className="p-1.5 rounded-lg text-slate-500 hover:text-white hover:bg-slate-800 transition-colors">
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <span className="text-sm font-semibold text-slate-300 w-32 text-center">
+                {new Date(calMonth.year, calMonth.month).toLocaleDateString('id-ID', { month: 'long', year: 'numeric' })}
+              </span>
+              <button onClick={() => setCalMonth(m => {
+                const d = new Date(m.year, m.month + 1);
+                return { year: d.getFullYear(), month: d.getMonth() };
+              })} className="p-1.5 rounded-lg text-slate-500 hover:text-white hover:bg-slate-800 transition-colors">
+                <ChevronRight className="w-4 h-4" />
+              </button>
+              {timeLoading && <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-600" />}
+            </div>
+          </div>
+
+          <TimeCalendar
+            year={calMonth.year}
+            month={calMonth.month}
+            logs={timeLogs}
+            selectedDay={calSelDay}
+            onSelectDay={setCalSelDay}
+          />
+
+          {calSelDay && (() => {
+            const dayLogs = timeLogs.filter(l => l.clock_in.substring(0, 10) === calSelDay);
+            const totalSec = dayLogs.reduce((s, l) => s + l.duration, 0);
+            return (
+              <div className="mt-4 border-t border-slate-800 pt-4">
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-sm font-semibold text-slate-300">
+                    {new Date(calSelDay + 'T00:00:00').toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long' })}
+                  </p>
+                  <span className="text-xs font-mono text-green-400 font-semibold">{fmtDur(totalSec)} total</span>
+                </div>
+                {dayLogs.length === 0 ? (
+                  <p className="text-xs text-slate-600">Tidak ada aktivitas pada hari ini.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {dayLogs.map(log => {
+                      const ci = new Date(log.clock_in);
+                      const co = log.clock_out ? new Date(log.clock_out) : null;
+                      const isActive = !log.clock_out;
+                      return (
+                        <div key={log.id} className="flex items-center gap-3 bg-slate-800/50 rounded-xl px-4 py-3">
+                          <div className={`w-2 h-2 rounded-full flex-shrink-0 ${isActive ? 'bg-green-400 animate-pulse' : 'bg-slate-600'}`} />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm text-slate-200 font-medium truncate">
+                              {log.task_title || `Task #${log.task_id}`}
+                            </p>
+                            {log.project_name && (
+                              <p className="text-[11px] text-slate-500 truncate">{log.project_name}</p>
+                            )}
+                          </div>
+                          <div className="text-right flex-shrink-0">
+                            <p className="text-xs text-slate-400 font-mono">
+                              {ci.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
+                              {' → '}
+                              {co ? co.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) : <span className="text-green-400">Aktif</span>}
+                            </p>
+                            <p className={`text-xs font-mono font-semibold mt-0.5 ${isActive ? 'text-green-400' : 'text-slate-300'}`}>
+                              {isActive ? 'Berjalan' : fmtDur(log.duration)}
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+        </div>
+
+        </>)}
 
       </div>
     </div>

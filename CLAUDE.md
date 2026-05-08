@@ -134,7 +134,7 @@ GET    /api/projects/:id/active-logs
 - `Skeleton.tsx` — `Bone`, `Spinner`, `ProjectCardSkeleton`, `BoardColumnSkeleton`, `DashboardStatSkeleton`, `DashboardRowSkeleton`, `TabContentSkeleton`
 
 ### Key Pages
-- `DashboardPage` — metrics, project health, team workload (week/month + Excel export), time tracking
+- `DashboardPage` — dua tab: **Overview** (metrics, project health full-width, distribusi status/prioritas, overdue table, semua task) dan **Team Workload** (beban kerja tim grid, team workload time logs week/month + Excel export, time tracking calendar)
 - `ProjectDetailPage` — Kanban board, task detail panel (slide-in), task form modal, members panel
 - `ProjectsPage` — project grid
 - `UsersPage` — user management (admin only untuk delete)
