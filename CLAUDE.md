@@ -199,8 +199,11 @@ GET    /api/time-logs?from=YYYY-MM-DD&to=YYYY-MM-DD
 
 ### Deploy
 - Push ke `main` → GitHub Actions otomatis deploy ke VPS.
-- Frontend: `npm ci` + `npm run build` → nginx serve dari `dist/`.
-- Backend: `docker compose restart nextools-backend` → Go source di-mount sebagai volume, restart = recompile.
+- Secrets yang dipakai: `HOST`, `USERNAME`, `SSH_PRIVATE_KEY`, `PORT`.
+- Frontend: `npm ci --prefer-offline` + `NODE_OPTIONS=--max-old-space-size=2048 npm run build`.
+- Backend + semua container: `docker compose up -d --build` (bukan hanya restart).
+- Setelah build: `docker image prune -f` untuk bersihkan image lama.
+- Timeout CI: 20 menit (`command_timeout: 30m` di SSH step).
 - **Data aman** — PostgreSQL volume persistent, AutoMigrate tidak merusak data.
 
 ---
