@@ -1085,8 +1085,9 @@ function TaskDetailPanel({
   const [attachments,  setAttachments]  = useState<TaskAttachment[]>([]);
   const [uploadingAttachment, setUploadingAttachment] = useState(false);
   const [subtasks,     setSubtasks]     = useState<Task[]>([]);
-  const [newSubtask,   setNewSubtask]   = useState('');
-  const [addingSubtask, setAddingSubtask] = useState(false);
+  const [newSubtask,        setNewSubtask]        = useState('');
+  const [addingSubtask,     setAddingSubtask]     = useState(false);
+  const [localAssigneeIds,  setLocalAssigneeIds]  = useState<number[]>([]);
   const prevIdRef      = useRef<number | null>(null);
   const tickRef        = useRef<ReturnType<typeof setInterval> | null>(null);
   const loadedTabsRef  = useRef<Set<string>>(new Set());
@@ -1155,6 +1156,7 @@ function TaskDetailPanel({
       setEditTitle(task.title);
       setEditDesc(task.description ?? '');
       setEditCategory(task.category ?? '');
+      setLocalAssigneeIds((task.assignees ?? []).map(a => a.id));
       setSubtasks([]);
       setAttachments([]);
       setTimeLogs(null);
@@ -1170,6 +1172,7 @@ function TaskDetailPanel({
       setAttachments([]);
       setSubtasks([]);
       setHistory([]);
+      setLocalAssigneeIds([]);
       loadedTabsRef.current = new Set();
     }
   }, [task]);
@@ -1407,15 +1410,17 @@ function TaskDetailPanel({
                     <label className={panelLbl}>Assignee</label>
                     <div className="flex flex-col gap-1 rounded-lg border border-slate-700 bg-slate-800/60 p-2 max-h-36 overflow-y-auto">
                       {users.map(u => {
-                        const checked = (task.assignees ?? []).some(a => a.id === u.id);
+                        const checked = localAssigneeIds.includes(u.id);
                         return (
                           <label key={u.id} className="flex items-center gap-2 cursor-pointer px-1 py-0.5 rounded hover:bg-slate-700/50">
                             <input
                               type="checkbox"
                               checked={checked}
                               onChange={() => {
-                                const current = (task.assignees ?? []).map(a => a.id);
-                                const next = checked ? current.filter(id => id !== u.id) : [...current, u.id];
+                                const next = checked
+                                  ? localAssigneeIds.filter(id => id !== u.id)
+                                  : [...localAssigneeIds, u.id];
+                                setLocalAssigneeIds(next);
                                 fieldChange({ assignee_ids: next, clear_assignees: next.length === 0 });
                               }}
                               className="accent-indigo-500 w-3.5 h-3.5"
