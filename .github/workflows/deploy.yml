@@ -8,7 +8,7 @@ on:
 
 jobs:
   deploy:
-    name: Deploy to VPS
+    name: Deploy NEXTOOLS to VPS
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -16,14 +16,14 @@ jobs:
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.2.0
         with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_KEY }}
-          port: ${{ secrets.SSH_PORT }}
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.PORT }}
           script_stop: true
+          debug: true
           timeout: 120s
           command_timeout: 30m
-          debug: true
           script: |
             set -e
 
@@ -33,8 +33,17 @@ jobs:
             echo "🚀 STARTING NEXTOOLS DEPLOYMENT"
             echo "====================================="
 
+            echo "👤 Connected as:"
+            whoami
+
+            echo "🖥️ Hostname:"
+            hostname
+
             echo "📂 Entering application directory..."
             cd "$APP_DIR"
+
+            echo "📍 Current directory:"
+            pwd
 
             echo "📥 Pulling latest source from GitHub..."
             git fetch origin main
@@ -69,4 +78,15 @@ jobs:
             echo "📦 Running containers:"
             docker compose ps
 
+            echo "====================================="
             echo "✅ DEPLOY NEXTOOLS SUCCESS"
+            echo "🌐 https://nextools.nexoratech.co"
+            echo "====================================="
+
+      - name: Notify success
+        if: success()
+        run: echo "✅ Deployment successful"
+
+      - name: Notify failure
+        if: failure()
+        run: echo "❌ Deployment failed"
