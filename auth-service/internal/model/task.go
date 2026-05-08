@@ -28,6 +28,7 @@ type Task struct {
 	Project      Project      `gorm:"foreignKey:ProjectID" json:"project,omitempty"`
 	AssigneeID   *uint        `gorm:"index" json:"assignee_id"`
 	Assignee     *User        `gorm:"foreignKey:AssigneeID" json:"assignee,omitempty"`
+	Assignees    []*User      `gorm:"many2many:task_assignees;" json:"assignees,omitempty"`
 	CreatorID    uint         `gorm:"not null" json:"creator_id"`
 	Creator      User         `gorm:"foreignKey:CreatorID" json:"creator,omitempty"`
 	Status       TaskStatus   `gorm:"type:varchar(20);default:'backlog'" json:"status"`
@@ -43,7 +44,7 @@ type CreateTaskRequest struct {
 	Title        string       `json:"title" binding:"required,min=2"`
 	Description  string       `json:"description"`
 	Category     string       `json:"category"`
-	AssigneeID   *uint        `json:"assignee_id"`
+	AssigneeIDs  []uint       `json:"assignee_ids"`
 	Status       TaskStatus   `json:"status"`
 	Priority     TaskPriority `json:"priority"`
 	DueDate      *string      `json:"due_date"` // "YYYY-MM-DD" or ""
@@ -51,33 +52,34 @@ type CreateTaskRequest struct {
 }
 
 type UpdateTaskRequest struct {
-	Title         *string      `json:"title" binding:"omitempty,min=2"`
-	Description   *string      `json:"description"`
-	Category      *string      `json:"category"`
-	AssigneeID    *uint        `json:"assignee_id"`   // null = unassign
-	ClearAssignee bool         `json:"clear_assignee"`
-	Status        TaskStatus   `json:"status"`
-	Priority      TaskPriority `json:"priority"`
-	DueDate       *string      `json:"due_date"`      // "" = clear due date
+	Title          *string      `json:"title" binding:"omitempty,min=2"`
+	Description    *string      `json:"description"`
+	Category       *string      `json:"category"`
+	AssigneeIDs    []uint       `json:"assignee_ids"`
+	ClearAssignees bool         `json:"clear_assignees"`
+	Status         TaskStatus   `json:"status"`
+	Priority       TaskPriority `json:"priority"`
+	DueDate        *string      `json:"due_date"` // "" = clear due date
 }
 
 type TaskResponse struct {
-	ID           uint           `json:"id"`
-	Title        string         `json:"title"`
-	Description  string         `json:"description"`
-	Category     string         `json:"category"`
-	ProjectID    uint           `json:"project_id"`
-	AssigneeID   *uint          `json:"assignee_id"`
-	Assignee     *UserResponse  `json:"assignee,omitempty"`
-	CreatorID    uint           `json:"creator_id"`
-	Creator      *UserResponse  `json:"creator,omitempty"`
-	Status       TaskStatus     `json:"status"`
-	Priority     TaskPriority   `json:"priority"`
-	DueDate      *time.Time     `json:"due_date"`
-	ParentTaskID *uint          `json:"parent_task_id"`
-	SubtaskCount int            `json:"subtask_count"`
-	CreatedAt    time.Time      `json:"created_at"`
-	UpdatedAt    time.Time      `json:"updated_at"`
+	ID           uint            `json:"id"`
+	Title        string          `json:"title"`
+	Description  string          `json:"description"`
+	Category     string          `json:"category"`
+	ProjectID    uint            `json:"project_id"`
+	AssigneeID   *uint           `json:"assignee_id"`
+	Assignee     *UserResponse   `json:"assignee,omitempty"`
+	Assignees    []*UserResponse `json:"assignees"`
+	CreatorID    uint            `json:"creator_id"`
+	Creator      *UserResponse   `json:"creator,omitempty"`
+	Status       TaskStatus      `json:"status"`
+	Priority     TaskPriority    `json:"priority"`
+	DueDate      *time.Time      `json:"due_date"`
+	ParentTaskID *uint           `json:"parent_task_id"`
+	SubtaskCount int             `json:"subtask_count"`
+	CreatedAt    time.Time       `json:"created_at"`
+	UpdatedAt    time.Time       `json:"updated_at"`
 }
 
 func (t *Task) ToResponse() *TaskResponse {
@@ -96,12 +98,22 @@ func (t *Task) ToResponse() *TaskResponse {
 		SubtaskCount: len(t.Subtasks),
 		CreatedAt:    t.CreatedAt,
 		UpdatedAt:    t.UpdatedAt,
+		Assignees:    []*UserResponse{},
 	}
 	if t.Assignee != nil {
 		resp.Assignee = t.Assignee.ToResponse()
 	}
 	if t.Creator.ID != 0 {
 		resp.Creator = t.Creator.ToResponse()
+	}
+	for _, u := range t.Assignees {
+		if u != nil {
+			resp.Assignees = append(resp.Assignees, u.ToResponse())
+		}
+	}
+	// Backward compat: if Assignees empty but AssigneeID set, populate from Assignee
+	if len(resp.Assignees) == 0 && resp.Assignee != nil {
+		resp.Assignees = []*UserResponse{resp.Assignee}
 	}
 	return resp
 }
