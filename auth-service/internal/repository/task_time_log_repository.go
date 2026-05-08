@@ -10,6 +10,8 @@ type TaskTimeLogRepository interface {
 	Create(log *model.TaskTimeLog) error
 	FindByTaskID(taskID uint) ([]model.TaskTimeLog, error)
 	FindActiveByUserAndTask(userID, taskID uint) (*model.TaskTimeLog, error)
+	FindActiveByUser(userID uint) (*model.TaskTimeLog, error)
+	FindActiveByProject(projectID uint) ([]model.TaskTimeLog, error)
 	Update(log *model.TaskTimeLog) error
 	Delete(logID, taskID, userID uint) error
 	FindByUserAndDateRange(userID uint, from, to string) ([]model.TaskTimeLog, error)
@@ -46,6 +48,29 @@ func (r *taskTimeLogRepository) FindActiveByUserAndTask(userID, taskID uint) (*m
 		return nil, err
 	}
 	return &log, nil
+}
+
+func (r *taskTimeLogRepository) FindActiveByUser(userID uint) (*model.TaskTimeLog, error) {
+	var log model.TaskTimeLog
+	err := r.db.Preload("User").
+		Where("user_id = ? AND clock_out IS NULL", userID).
+		First(&log).Error
+	if err != nil {
+		return nil, err
+	}
+	return &log, nil
+}
+
+func (r *taskTimeLogRepository) FindActiveByProject(projectID uint) ([]model.TaskTimeLog, error) {
+	var logs []model.TaskTimeLog
+	err := r.db.Preload("User").
+		Joins("JOIN tasks t ON t.id = task_time_logs.task_id").
+		Where("t.project_id = ? AND task_time_logs.clock_out IS NULL", projectID).
+		Find(&logs).Error
+	if err != nil {
+		return nil, err
+	}
+	return logs, nil
 }
 
 func (r *taskTimeLogRepository) Update(log *model.TaskTimeLog) error {

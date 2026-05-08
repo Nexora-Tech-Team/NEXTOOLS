@@ -116,10 +116,12 @@ export default function ProjectDetailPage() {
 
   // core data
   const [project,  setProject]  = useState<Project | null>(null);
-  const [tasks,    setTasks]    = useState<Task[]>([]);
-  const [users,    setUsers]    = useState<User[]>([]);
-  const [members,  setMembers]  = useState<ProjectMember[]>([]);
-  const [loading,  setLoading]  = useState(true);
+  const [tasks,         setTasks]         = useState<Task[]>([]);
+  const [users,         setUsers]         = useState<User[]>([]);
+  const [members,       setMembers]       = useState<ProjectMember[]>([]);
+  const [loading,       setLoading]       = useState(true);
+  const [activeLogs,    setActiveLogs]    = useState<TaskTimeLog[]>([]);
+  const [myActiveLog,   setMyActiveLog]   = useState<TaskTimeLog | null>(null);
 
   // RBAC helpers
   const isAdmin      = user?.role === 'admin';
@@ -179,31 +181,47 @@ export default function ProjectDetailPage() {
 
   // ── Data fetching ──────────────────────────────────────────────────────────
 
+  const refreshActiveLogs = useCallback(async () => {
+    try {
+      const [projLogs, myLog] = await Promise.all([
+        tasksApi.getActiveLogsByProject(projectId),
+        tasksApi.getMyActiveLog(),
+      ]);
+      setActiveLogs(projLogs.data ?? []);
+      setMyActiveLog(myLog.data ?? null);
+    } catch { /* non-critical */ }
+  }, [projectId]);
+
   const refreshTasks = useCallback(async () => {
     try {
       const res = await tasksApi.getByProject(projectId);
       const list = res.data || [];
       setTasks(list);
       setSelectedTask(prev => prev ? (list.find(t => t.id === prev.id) ?? null) : null);
+      refreshActiveLogs();
     } catch (error) {
       console.error('Failed to refresh tasks', error);
     }
-  }, [projectId]);
+  }, [projectId, refreshActiveLogs]);
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [proj, taskRes, userRes, memberRes, colCfg] = await Promise.all([
+      const [proj, taskRes, userRes, memberRes, colCfg, activeRes, myActiveRes] = await Promise.all([
         projectsApi.getById(projectId),
         tasksApi.getByProject(projectId),
         usersApi.getAll(),
         membersApi.getByProject(projectId),
         projectsApi.getColumnConfig(projectId).catch(() => null),
+        tasksApi.getActiveLogsByProject(projectId).catch(() => ({ data: [] })),
+        tasksApi.getMyActiveLog().catch(() => ({ data: null })),
       ]);
       setProject(proj.data);
       setTasks(taskRes.data || []);
       setUsers(userRes.data || []);
       setMembers(memberRes.data || []);
+      setActiveLogs(activeRes.data ?? []);
+      setMyActiveLog(myActiveRes.data ?? null);
       if (colCfg) {
         // API wins over localStorage — sync both
         const labels = colCfg.labels || {};
@@ -655,6 +673,7 @@ export default function ProjectDetailPage() {
                       colLabels={colLabels}
                       isDragging={dragTaskId === task.id}
                       canEdit={canEditTask(task)}
+                      activeLog={activeLogs.find(l => l.task_id === task.id)}
                       onDragStart={() => setDragTaskId(task.id)}
                       onDragEnd={() => { setDragTaskId(null); setDragOverCol(null); }}
                       onClick={() => setSelectedTask(task)}
@@ -800,12 +819,15 @@ export default function ProjectDetailPage() {
         columns={columns}
         colLabels={colLabels}
         canEdit={selectedTask ? canEditTask(selectedTask) : false}
+        myActiveLog={myActiveLog}
+        activeLog={selectedTask ? activeLogs.find(l => l.task_id === selectedTask.id) : undefined}
         onClose={() => setSelectedTask(null)}
         onUpdate={async (taskId, payload) => {
           await tasksApi.update(taskId, payload);
           await refreshTasks();
         }}
         onDelete={handleDeleteTask}
+        onClockChange={refreshActiveLogs}
       />
 
       {/* ── Members panel ── */}
@@ -826,7 +848,7 @@ export default function ProjectDetailPage() {
 // ─── Task Card ────────────────────────────────────────────────────────────────
 
 function TaskCard({
-  task, columns, colLabels, isDragging, canEdit,
+  task, columns, colLabels, isDragging, canEdit, activeLog,
   onDragStart, onDragEnd, onClick, onEdit, onDelete, onStatusChange, onDueDateChange,
 }: {
   task: Task;
@@ -834,6 +856,7 @@ function TaskCard({
   colLabels: Record<string, string>;
   isDragging: boolean;
   canEdit: boolean;
+  activeLog?: TaskTimeLog;
   onDragStart: () => void;
   onDragEnd: () => void;
   onClick: () => void;
@@ -865,16 +888,25 @@ function TaskCard({
       onDragStart={e => { e.dataTransfer.effectAllowed = 'move'; onDragStart(); }}
       onDragEnd={onDragEnd}
       onClick={onClick}
-      className={`animate-fade-in group relative bg-[#1e2330] border border-[#2a3147] rounded-lg cursor-pointer transition-all shadow-sm shadow-black/40
+      className={`animate-fade-in group relative bg-[#1e2330] rounded-lg cursor-pointer transition-all shadow-sm shadow-black/40
+        ${activeLog ? 'border border-green-500/40' : 'border border-[#2a3147]'}
         ${isDragging ? 'opacity-30 scale-95' : 'hover:border-[#3d4f7c] hover:shadow-lg hover:shadow-black/50 hover:-translate-y-0.5'}`}
     >
       {/* Priority stripe */}
       <div className={`absolute left-0 top-0 bottom-0 w-0.5 rounded-l-lg ${pc.cardBorder.replace('border-l-', 'bg-')}`} />
 
       <div className="px-3 pt-3 pb-2.5 pl-4">
-        {/* Top row: ID + actions */}
+        {/* Top row: ID + active indicator + actions */}
         <div className="flex items-center justify-between mb-2">
-          <span className="text-[10px] font-mono text-slate-500 tracking-wide">TASK-{task.id}</span>
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] font-mono text-slate-500 tracking-wide">TASK-{task.id}</span>
+            {activeLog && (
+              <span className="flex items-center gap-1 text-[10px] text-green-400 font-medium">
+                <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse inline-block" />
+                {activeLog.user?.name?.split(' ')[0] ?? 'Someone'}
+              </span>
+            )}
+          </div>
           <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
             {canEdit && <>
               <button onClick={onEdit}
@@ -1002,16 +1034,19 @@ function TaskCard({
 // ─── Task Detail Panel ────────────────────────────────────────────────────────
 
 function TaskDetailPanel({
-  task, users, columns, colLabels, canEdit, onClose, onUpdate, onDelete,
+  task, users, columns, colLabels, canEdit, myActiveLog, activeLog, onClose, onUpdate, onDelete, onClockChange,
 }: {
   task: Task | null;
   users: User[];
   columns: ColDef[];
   colLabels: Record<string, string>;
   canEdit: boolean;
+  myActiveLog?: TaskTimeLog | null;
+  activeLog?: TaskTimeLog;
   onClose: () => void;
   onUpdate: (id: number, payload: UpdateTaskRequest) => Promise<void>;
   onDelete: (task: Task) => void;
+  onClockChange?: () => void;
 }) {
   const { showToast } = useToast();
   // ESC to close panel
@@ -1127,7 +1162,11 @@ function TaskDetailPanel({
       await tasksApi.clockIn(task.id, manualTime);
       await loadTimeLogs(task.id);
       showToast('Clock in berhasil!');
-    } catch { showToast('Gagal clock in', 'error'); }
+      onClockChange?.();
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
+      showToast(msg || 'Gagal clock in', 'error');
+    }
   };
 
   const handleClockOut = async (manualTime?: string) => {
@@ -1136,6 +1175,7 @@ function TaskDetailPanel({
       await tasksApi.clockOut(task.id, manualTime);
       await loadTimeLogs(task.id);
       showToast('Clock out berhasil!');
+      onClockChange?.();
     } catch { showToast('Gagal clock out', 'error'); }
   };
 
@@ -1550,6 +1590,8 @@ function TaskDetailPanel({
                   timeLogs={timeLogs}
                   loading={timeLoading}
                   tick={clockTick}
+                  myActiveLog={myActiveLog}
+                  taskActiveLog={activeLog}
                   onClockIn={handleClockIn}
                   onClockOut={handleClockOut}
                   onManualLog={handleManualTimeLog}
@@ -1653,11 +1695,13 @@ function fmtDuration(seconds: number): string {
 }
 
 function TimeTrackingSection({
-  timeLogs, loading, tick, onClockIn, onClockOut, onManualLog, onDeleteLog,
+  timeLogs, loading, tick, myActiveLog, taskActiveLog, onClockIn, onClockOut, onManualLog, onDeleteLog,
 }: {
   timeLogs: TaskTimeLogsResponse | null;
   loading: boolean;
   tick: number;
+  myActiveLog?: TaskTimeLog | null;
+  taskActiveLog?: TaskTimeLog;
   onClockIn: (manualTime?: string) => Promise<void>;
   onClockOut: (manualTime?: string) => Promise<void>;
   onManualLog: (clockIn: string, clockOut: string) => Promise<void>;
@@ -1675,6 +1719,8 @@ function TimeTrackingSection({
     : 0;
   const total = (timeLogs?.total_duration ?? 0) + liveSec;
   const isActive = !!timeLogs?.active_log;
+  // User sedang aktif di task lain (bukan task ini)
+  const myActiveElsewhere = myActiveLog && myActiveLog.task_id !== taskActiveLog?.task_id && !isActive ? myActiveLog : null;
 
   const handle = async (fn: () => Promise<void>) => {
     setBusy(true);
@@ -1723,8 +1769,9 @@ function TimeTrackingSection({
           ) : (
             <button
               onClick={() => handle(() => onClockIn())}
-              disabled={busy}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-green-500/10 border border-green-500/30 text-green-400 hover:bg-green-500/20 text-xs font-medium transition-colors disabled:opacity-50"
+              disabled={busy || !!myActiveElsewhere}
+              title={myActiveElsewhere ? `Sedang aktif di: ${myActiveElsewhere.task_title ?? 'task lain'}` : undefined}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-green-500/10 border border-green-500/30 text-green-400 hover:bg-green-500/20 text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Play className="w-3 h-3 fill-current" />
               Clock In
@@ -1745,6 +1792,18 @@ function TimeTrackingSection({
         <div className="flex items-center gap-2 text-xs text-green-400">
           <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
           Sedang berjalan · {fmtDuration(liveSec)}
+        </div>
+      )}
+
+      {/* Warning: user is clocked in on another task */}
+      {myActiveElsewhere && (
+        <div className="flex items-start gap-2 rounded-lg bg-amber-500/10 border border-amber-500/30 px-2.5 py-2 text-xs text-amber-400">
+          <span className="mt-0.5 w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse flex-shrink-0" />
+          <span>
+            Kamu sedang aktif di task lain
+            {myActiveElsewhere.task_title ? `: "${myActiveElsewhere.task_title}"` : ''}
+            . Clock out dulu sebelum pindah.
+          </span>
         </div>
       )}
 
