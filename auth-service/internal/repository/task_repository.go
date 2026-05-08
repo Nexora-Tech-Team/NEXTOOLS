@@ -66,6 +66,11 @@ func (r *taskRepository) UpdateFields(id uint, fields map[string]interface{}) er
 }
 
 func (r *taskRepository) Delete(id uint) error {
+	// Clean up related records first (no CASCADE in DB)
+	r.db.Where("task_id = ?", id).Delete(&model.TaskTimeLog{})
+	r.db.Where("task_id = ?", id).Delete(&model.TaskHistory{})
+	r.db.Where("task_id = ?", id).Delete(&model.TaskAttachment{})
+	r.db.Exec("DELETE FROM task_assignees WHERE task_id = ?", id)
 	return r.db.Delete(&model.Task{}, id).Error
 }
 

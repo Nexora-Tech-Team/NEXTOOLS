@@ -251,7 +251,7 @@ export default function DashboardPage() {
     const to = `${year}-${String(month + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
     setTimeLoading(true);
     tasksApi.getMyTimeLogs(from, to)
-      .then(r => setTimeLogs(r.data ?? []))
+      .then(r => setTimeLogs((r.data ?? []).filter(l => !!l.task_title)))
       .catch(() => setTimeLogs([]))
       .finally(() => setTimeLoading(false));
   }, [calMonth]);
@@ -281,7 +281,7 @@ export default function DashboardPage() {
   useEffect(() => {
     setTeamLoading(true);
     tasksApi.getAllTimeLogs(wlRange.from, wlRange.to)
-      .then(r => setTeamLogs(r.data ?? []))
+      .then(r => setTeamLogs((r.data ?? []).filter(l => !!l.task_title)))
       .catch(() => setTeamLogs([]))
       .finally(() => setTeamLoading(false));
   }, [wlRange.from, wlRange.to]);
