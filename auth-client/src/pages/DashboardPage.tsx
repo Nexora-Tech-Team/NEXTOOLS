@@ -202,6 +202,17 @@ export default function DashboardPage() {
   const [teamLoading, setTeamLoading] = useState(false);
   const [wlExpanded,  setWlExpanded]  = useState<number | null>(null); // expanded user id
   const [activeTab,   setActiveTab]   = useState<'overview' | 'workload'>('overview');
+  const [filterOpen,  setFilterOpen]  = useState(false);
+
+  useEffect(() => {
+    if (!filterOpen) return;
+    const handler = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest('[data-filter-dropdown]')) setFilterOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [filterOpen]);
 
   const load = useCallback(async (isRefresh = false) => {
     if (isRefresh) {
@@ -366,34 +377,41 @@ export default function DashboardPage() {
           </button>
         </div>
 
-        {/* ── Project filter chips ── */}
-        <div className="overflow-x-auto outline-none" tabIndex={-1}>
-          <div className="flex min-w-max items-center gap-1.5 pb-0.5">
-            <button
-              onClick={() => setSelectedId(null)}
-              className={`rounded-full px-3 py-1 text-xs font-medium transition-colors whitespace-nowrap ${
-                selectedId === null
-                  ? 'bg-indigo-600 text-white'
-                  : 'bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700'
-              }`}
-            >
-              Semua
-            </button>
-            {stats.map(s => (
+        {/* ── Project filter dropdown ── */}
+        <div className="relative w-fit" data-filter-dropdown>
+          <button
+            onClick={() => setFilterOpen(v => !v)}
+            className="flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs font-medium text-slate-300 transition-colors hover:border-slate-500 hover:text-white"
+          >
+            <FolderKanban className="w-3.5 h-3.5 text-slate-400" />
+            <span>{selectedId === null ? 'Semua Project' : (selectedProj?.name ?? '—')}</span>
+            <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform ${filterOpen ? 'rotate-180' : ''}`} />
+          </button>
+          {filterOpen && (
+            <div className="absolute left-0 top-full z-20 mt-1 min-w-[200px] max-w-[280px] rounded-xl border border-slate-700 bg-slate-900 py-1 shadow-lg shadow-black/40">
               <button
-                key={s.project.id}
-                onClick={() => setSelectedId(s.project.id)}
-                className={`rounded-full px-3 py-1 text-xs font-medium transition-colors whitespace-nowrap ${
-                  selectedId === s.project.id
-                    ? 'bg-indigo-600 text-white'
-                    : 'bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700'
+                onClick={() => { setSelectedId(null); setFilterOpen(false); }}
+                className={`w-full px-3 py-2 text-left text-xs transition-colors ${
+                  selectedId === null ? 'text-indigo-400 font-semibold' : 'text-slate-400 hover:text-white hover:bg-slate-800'
                 }`}
-                title={s.project.name}
               >
-                {s.project.name}
+                Semua Project
               </button>
-            ))}
-          </div>
+              <div className="my-1 border-t border-slate-800" />
+              {stats.map(s => (
+                <button
+                  key={s.project.id}
+                  onClick={() => { setSelectedId(s.project.id); setFilterOpen(false); }}
+                  className={`w-full truncate px-3 py-2 text-left text-xs transition-colors ${
+                    selectedId === s.project.id ? 'text-indigo-400 font-semibold' : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                  }`}
+                  title={s.project.name}
+                >
+                  {s.project.name}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* ── Project context banner (saat project dipilih) ── */}
