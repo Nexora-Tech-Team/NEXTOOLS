@@ -114,7 +114,9 @@ func main() {
 		api.GET("/tasks/:id/history", taskHandler.GetHistory)
 
 		api.GET("/me/time-logs", taskTimeLogHandler.GetMyLogs)
+		api.GET("/me/active-log", taskTimeLogHandler.GetMyActiveLog)
 		api.GET("/time-logs", taskTimeLogHandler.GetAllLogs)
+		api.GET("/projects/:id/active-logs", taskTimeLogHandler.GetActiveByProject)
 
 		api.POST("/tasks/:id/clock-in", taskTimeLogHandler.ClockIn)
 		api.POST("/tasks/:id/clock-out", taskTimeLogHandler.ClockOut)

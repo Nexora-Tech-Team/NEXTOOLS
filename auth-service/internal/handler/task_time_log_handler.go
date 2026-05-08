@@ -173,6 +173,33 @@ func (h *TaskTimeLogHandler) GetAllLogs(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": result})
 }
 
+// GET /api/projects/:id/active-logs
+func (h *TaskTimeLogHandler) GetActiveByProject(c *gin.Context) {
+	projectID, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid project id"})
+		return
+	}
+	result, err := h.svc.GetActiveByProject(uint(projectID))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": result})
+}
+
+// GET /api/me/active-log
+func (h *TaskTimeLogHandler) GetMyActiveLog(c *gin.Context) {
+	userID := c.GetUint("user_id")
+	result, err := h.svc.GetActiveByUser(userID)
+	if err != nil {
+		// no active log is not an error
+		c.JSON(http.StatusOK, gin.H{"data": nil})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": result})
+}
+
 // DELETE /api/tasks/:id/time-logs/:logId
 func (h *TaskTimeLogHandler) DeleteLog(c *gin.Context) {
 	taskID, err := strconv.ParseUint(c.Param("id"), 10, 32)
