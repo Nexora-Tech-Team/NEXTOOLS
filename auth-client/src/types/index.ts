@@ -64,6 +64,7 @@ export interface Task {
   project_id: number;
   assignee_id?: number;
   assignee?: User;
+  assignees: User[];
   creator_id: number;
   creator?: User;
   status: TaskStatus;
@@ -141,7 +142,7 @@ export interface CreateTaskRequest {
   title: string;
   description?: string;
   category?: string;
-  assignee_id?: number;
+  assignee_ids?: number[];
   status?: TaskStatus;
   priority?: TaskPriority;
   due_date?: string;
@@ -152,8 +153,8 @@ export interface UpdateTaskRequest {
   title?: string;
   description?: string;
   category?: string;
-  assignee_id?: number;
-  clear_assignee?: boolean;
+  assignee_ids?: number[];
+  clear_assignees?: boolean;
   status?: TaskStatus;
   priority?: TaskPriority;
   due_date?: string;

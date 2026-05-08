@@ -53,12 +53,18 @@ func (s *taskService) Create(projectID, creatorID uint, req *model.CreateTaskReq
 		}
 	}
 
+	// First assignee becomes the primary for backward compat
+	var primaryAssigneeID *uint
+	if len(req.AssigneeIDs) > 0 {
+		primaryAssigneeID = &req.AssigneeIDs[0]
+	}
+
 	task := &model.Task{
 		Title:       req.Title,
 		Description: req.Description,
 		Category:    req.Category,
 		ProjectID:   projectID,
-		AssigneeID:  req.AssigneeID,
+		AssigneeID:  primaryAssigneeID,
 		CreatorID:   creatorID,
 		Status:      status,
 		Priority:    priority,
@@ -66,6 +72,11 @@ func (s *taskService) Create(projectID, creatorID uint, req *model.CreateTaskReq
 	}
 	if err := s.taskRepo.Create(task); err != nil {
 		return nil, errors.New("failed to create task")
+	}
+	if len(req.AssigneeIDs) > 0 {
+		if err := s.taskRepo.SetAssignees(task.ID, req.AssigneeIDs); err != nil {
+			return nil, errors.New("failed to set assignees")
+		}
 	}
 
 	// Record creation history
@@ -113,6 +124,12 @@ func (s *taskService) Update(id, actorID uint, actorRole string, req *model.Upda
 	if actorRole != "admin" {
 		isCreator  := task.CreatorID == actorID
 		isAssignee := task.AssigneeID != nil && *task.AssigneeID == actorID
+		for _, u := range task.Assignees {
+			if u != nil && u.ID == actorID {
+				isAssignee = true
+				break
+			}
+		}
 		if !isCreator && !isAssignee {
 			return nil, errors.New("forbidden: you can only update tasks you created or are assigned to")
 		}
@@ -137,10 +154,10 @@ func (s *taskService) Update(id, actorID uint, actorRole string, req *model.Upda
 	if req.Priority != "" {
 		fields["priority"] = req.Priority
 	}
-	if req.ClearAssignee {
+	if req.ClearAssignees {
 		fields["assignee_id"] = nil
-	} else if req.AssigneeID != nil {
-		fields["assignee_id"] = *req.AssigneeID
+	} else if len(req.AssigneeIDs) > 0 {
+		fields["assignee_id"] = req.AssigneeIDs[0]
 	}
 	if req.DueDate != nil {
 		if *req.DueDate == "" {
@@ -153,13 +170,26 @@ func (s *taskService) Update(id, actorID uint, actorRole string, req *model.Upda
 		}
 	}
 
-	if len(fields) == 0 {
+	// Handle assignees association update
+	if req.ClearAssignees {
+		if err := s.taskRepo.SetAssignees(id, []uint{}); err != nil {
+			return nil, errors.New("failed to clear assignees")
+		}
+	} else if len(req.AssigneeIDs) > 0 {
+		if err := s.taskRepo.SetAssignees(id, req.AssigneeIDs); err != nil {
+			return nil, errors.New("failed to set assignees")
+		}
+	}
+
+	if len(fields) == 0 && !req.ClearAssignees && len(req.AssigneeIDs) == 0 {
 		t, _ := s.taskRepo.FindByID(id)
 		return t.ToResponse(), nil
 	}
 
-	if err := s.taskRepo.UpdateFields(id, fields); err != nil {
-		return nil, errors.New("failed to update task")
+	if len(fields) > 0 {
+		if err := s.taskRepo.UpdateFields(id, fields); err != nil {
+			return nil, errors.New("failed to update task")
+		}
 	}
 
 	// Build history entries
@@ -186,10 +216,10 @@ func (s *taskService) Update(id, actorID uint, actorRole string, req *model.Upda
 			old = fmt.Sprintf("%d", *snapshot.AssigneeID)
 		}
 		nw := "unassigned"
-		if !req.ClearAssignee && req.AssigneeID != nil {
-			nw = fmt.Sprintf("%d", *req.AssigneeID)
+		if !req.ClearAssignees && len(req.AssigneeIDs) > 0 {
+			nw = fmt.Sprintf("%v", req.AssigneeIDs)
 		}
-		entries = append(entries, histEntry(id, actorID, "assignee_id", old, nw))
+		entries = append(entries, histEntry(id, actorID, "assignees", old, nw))
 	}
 	if _, ok := fields["due_date"]; ok {
 		old := ""
@@ -217,6 +247,12 @@ func (s *taskService) Delete(id, actorID uint, actorRole string) error {
 	if actorRole != "admin" {
 		isCreator  := task.CreatorID == actorID
 		isAssignee := task.AssigneeID != nil && *task.AssigneeID == actorID
+		for _, u := range task.Assignees {
+			if u != nil && u.ID == actorID {
+				isAssignee = true
+				break
+			}
+		}
 		if !isCreator && !isAssignee {
 			return errors.New("forbidden: you can only delete tasks you created or are assigned to")
 		}

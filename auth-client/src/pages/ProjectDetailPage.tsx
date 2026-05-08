@@ -64,7 +64,7 @@ const PRIORITY_OPTIONS: Array<{ value: TaskPriority; label: string }> = [
 ];
 
 const EMPTY_FORM: CreateTaskRequest = {
-  title: '', description: '', category: '', assignee_id: undefined,
+  title: '', description: '', category: '', assignee_ids: [],
   status: 'backlog', priority: 'medium', due_date: '',
 };
 
@@ -128,7 +128,7 @@ export default function ProjectDetailPage() {
   const myMembership = members.find(m => m.user_id === user?.id);
   const isOwner      = myMembership?.role === 'owner';
   const canManageProject = isAdmin || isOwner; // delete project, manage members
-  const canEditTask  = (task: Task) => isAdmin || task.creator_id === user?.id || task.assignee_id === user?.id;
+  const canEditTask  = (task: Task) => isAdmin || task.creator_id === user?.id || (task.assignees ?? []).some(a => a.id === user?.id);
 
   // modals / panels
   const [showAddTask,      setShowAddTask]      = useState(false);
@@ -316,7 +316,7 @@ export default function ProjectDetailPage() {
     e.preventDefault();
     setTaskSaving(true);
     try {
-      const res = await tasksApi.create(projectId, { ...form, assignee_id: form.assignee_id || undefined, due_date: form.due_date || '' });
+      const res = await tasksApi.create(projectId, { ...form, assignee_ids: form.assignee_ids ?? [], due_date: form.due_date || '' });
       const taskId = res.data.id;
       for (const img of pendingImages) {
         await tasksApi.createAttachment(taskId, img.filename, img.mimeType, img.data);
@@ -337,13 +337,14 @@ export default function ProjectDetailPage() {
     if (!editTask) return;
     setTaskSaving(true);
     try {
+      const assigneeIds = form.assignee_ids ?? [];
       await tasksApi.update(editTask.id, {
         title: form.title, description: form.description,
         category: form.category,
         status: form.status, priority: form.priority,
         due_date: form.due_date ?? '',
-        assignee_id: form.assignee_id || undefined,
-        clear_assignee: !form.assignee_id,
+        assignee_ids: assigneeIds,
+        clear_assignees: assigneeIds.length === 0,
       });
       for (const img of pendingImages) {
         await tasksApi.createAttachment(editTask.id, img.filename, img.mimeType, img.data);
@@ -396,7 +397,8 @@ export default function ProjectDetailPage() {
     setEditTask(task);
     setForm({
       title: task.title, description: task.description, category: task.category ?? '',
-      assignee_id: task.assignee_id, status: task.status, priority: task.priority,
+      assignee_ids: (task.assignees ?? []).map(a => a.id),
+      status: task.status, priority: task.priority,
       due_date: task.due_date ? String(task.due_date).substring(0, 10) : '',
     });
   };
@@ -452,7 +454,7 @@ export default function ProjectDetailPage() {
     if (search && !t.title.toLowerCase().includes(search.toLowerCase()) &&
         !(t.description ?? '').toLowerCase().includes(search.toLowerCase())) return false;
     if (filterPriority !== 'all' && t.priority !== filterPriority) return false;
-    if (filterAssignee !== 'all' && t.assignee_id !== filterAssignee) return false;
+    if (filterAssignee !== 'all' && !(t.assignees ?? []).some(a => a.id === filterAssignee)) return false;
     return true;
   });
 
@@ -969,15 +971,24 @@ function TaskCard({
 
         {/* Bottom row: assignee + status */}
         <div className="flex items-center justify-between gap-2">
-          {/* Assignee avatar */}
-          {task.assignee ? (
-            <div className="flex items-center gap-1.5 min-w-0">
-              <div className="w-5 h-5 rounded-full bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center flex-shrink-0 ring-1 ring-indigo-500/30">
-                <span className="text-white text-[9px] font-bold leading-none">
-                  {task.assignee.name.charAt(0).toUpperCase()}
-                </span>
+          {/* Assignee avatars */}
+          {(task.assignees ?? []).length > 0 ? (
+            <div className="flex items-center gap-1 min-w-0">
+              <div className="flex -space-x-1.5">
+                {(task.assignees ?? []).slice(0, 3).map(a => (
+                  <div key={a.id} title={a.name} className="w-5 h-5 rounded-full bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center flex-shrink-0 ring-1 ring-[#1e2330]">
+                    <span className="text-white text-[9px] font-bold leading-none">{a.name.charAt(0).toUpperCase()}</span>
+                  </div>
+                ))}
+                {(task.assignees ?? []).length > 3 && (
+                  <div className="w-5 h-5 rounded-full bg-slate-700 flex items-center justify-center flex-shrink-0 ring-1 ring-[#1e2330]">
+                    <span className="text-slate-300 text-[8px] font-bold">+{(task.assignees ?? []).length - 3}</span>
+                  </div>
+                )}
               </div>
-              <span className="text-slate-500 text-[11px] truncate max-w-[80px]">{task.assignee.name}</span>
+              {(task.assignees ?? []).length === 1 && (
+                <span className="text-slate-500 text-[11px] truncate max-w-[70px]">{task.assignees![0].name}</span>
+              )}
             </div>
           ) : (
             <div className="w-5 h-5 rounded-full border border-dashed border-slate-600 flex items-center justify-center">
@@ -1059,6 +1070,7 @@ function TaskDetailPanel({
   const [activeTab,    setActiveTab]    = useState<'details' | 'subtasks' | 'timelogs' | 'history'>('details');
   const [editTitle,    setEditTitle]    = useState('');
   const [editDesc,     setEditDesc]     = useState('');
+  const [editCategory, setEditCategory] = useState('');
   const [saving,       setSaving]       = useState(false);
   const [history,      setHistory]      = useState<TaskHistoryEntry[]>([]);
   const [histLoading,  setHistLoading]  = useState(false);
@@ -1137,6 +1149,7 @@ function TaskDetailPanel({
     if (task && task.id !== prevIdRef.current) {
       setEditTitle(task.title);
       setEditDesc(task.description ?? '');
+      setEditCategory(task.category ?? '');
       setSubtasks([]);
       setAttachments([]);
       setTimeLogs(null);
@@ -1387,17 +1400,26 @@ function TaskDetailPanel({
                   </div>
                   <div>
                     <label className={panelLbl}>Assignee</label>
-                    <select
-                      value={task.assignee_id ?? ''}
-                      onChange={e => fieldChange({
-                        assignee_id: e.target.value ? Number(e.target.value) : undefined,
-                        clear_assignee: !e.target.value,
+                    <div className="flex flex-col gap-1 rounded-lg border border-slate-700 bg-slate-800/60 p-2 max-h-36 overflow-y-auto">
+                      {users.map(u => {
+                        const checked = (task.assignees ?? []).some(a => a.id === u.id);
+                        return (
+                          <label key={u.id} className="flex items-center gap-2 cursor-pointer px-1 py-0.5 rounded hover:bg-slate-700/50">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => {
+                                const current = (task.assignees ?? []).map(a => a.id);
+                                const next = checked ? current.filter(id => id !== u.id) : [...current, u.id];
+                                fieldChange({ assignee_ids: next, clear_assignees: next.length === 0 });
+                              }}
+                              className="accent-indigo-500 w-3.5 h-3.5"
+                            />
+                            <span className="text-xs text-slate-300">{u.name}</span>
+                          </label>
+                        );
                       })}
-                      className={panelSel}
-                    >
-                      <option value="">— Unassigned —</option>
-                      {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-                    </select>
+                    </div>
                   </div>
                   <div>
                     <label className={panelLbl}>Due Date</label>
@@ -1412,9 +1434,9 @@ function TaskDetailPanel({
                     <label className={panelLbl}>Category</label>
                     <input
                       type="text"
-                      key={task.id}
-                      defaultValue={task.category ?? ''}
-                      onBlur={e => { if (e.target.value !== (task.category ?? '')) fieldChange({ category: e.target.value }); }}
+                      value={editCategory}
+                      onChange={e => setEditCategory(e.target.value)}
+                      onBlur={() => { if (editCategory !== (task.category ?? '')) fieldChange({ category: editCategory }); }}
                       placeholder="e.g. Bug Fix, Development…"
                       className={panelSel}
                     />
@@ -2168,14 +2190,26 @@ function TaskFormModal({
               {/* Assignee */}
               <div>
                 <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Assignee</p>
-                <select
-                  value={form.assignee_id ?? ''}
-                  onChange={e => onChange({ ...form, assignee_id: e.target.value ? Number(e.target.value) : undefined })}
-                  className={jinp}
-                >
-                  <option value="">Unassigned</option>
-                  {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-                </select>
+                <div className="flex flex-col gap-1 rounded-lg border border-slate-700 bg-slate-800/60 p-2 max-h-36 overflow-y-auto">
+                  {users.map(u => {
+                    const checked = (form.assignee_ids ?? []).includes(u.id);
+                    return (
+                      <label key={u.id} className="flex items-center gap-2 cursor-pointer px-1 py-0.5 rounded hover:bg-slate-700/50">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => {
+                            const current = form.assignee_ids ?? [];
+                            const next = checked ? current.filter(id => id !== u.id) : [...current, u.id];
+                            onChange({ ...form, assignee_ids: next });
+                          }}
+                          className="accent-indigo-500 w-3.5 h-3.5"
+                        />
+                        <span className="text-xs text-slate-300">{u.name}</span>
+                      </label>
+                    );
+                  })}
+                </div>
               </div>
 
               {/* Priority */}
