@@ -66,7 +66,8 @@ NEXTOOLS/
 | `users` | id, name, email, password (hashed), role (admin/user), is_active |
 | `projects` | id, name, description, owner_id |
 | `project_members` | project_id, user_id, role (owner/member) |
-| `tasks` | id, title, description, category, status, priority, due_date, assignee_id, creator_id, parent_task_id, project_id |
+| `tasks` | id, title, description, category, status, priority, due_date, assignee_id (legacy single), creator_id, parent_task_id, project_id |
+| `task_assignees` | task_id, user_id (many2many join table — multiple assignees per task) |
 | `task_history` | id, task_id, user_id, action, field, old_value, new_value |
 | `task_time_logs` | id, task_id, user_id, clock_in, clock_out, duration (seconds) |
 | `task_attachments` | id, task_id, filename, mime_type, data (base64 text) |
@@ -134,18 +135,21 @@ GET    /api/projects/:id/active-logs
 - `Skeleton.tsx` — `Bone`, `Spinner`, `ProjectCardSkeleton`, `BoardColumnSkeleton`, `DashboardStatSkeleton`, `DashboardRowSkeleton`, `TabContentSkeleton`
 
 ### Key Pages
-- `DashboardPage` — dua tab: **Overview** (metrics, project health full-width, distribusi status/prioritas, overdue table, semua task) dan **Team Workload** (beban kerja tim grid, team workload time logs week/month + Excel export, time tracking calendar)
+- `DashboardPage` — header: judul + tabs inline kiri, dropdown filter project, refresh button kanan. Dua tab: **Overview** (metrics, project health full-width, distribusi status/prioritas, overdue table, semua task) dan **Team Workload** (beban kerja tim grid, team workload time logs week/month + Excel export, time tracking calendar). Orphan time logs (task sudah dihapus) difilter dari tampilan.
 - `ProjectDetailPage` — Kanban board, task detail panel (slide-in), task form modal, members panel
 - `ProjectsPage` — project grid
 - `UsersPage` — user management (admin only untuk delete)
 
 ### Patterns
-- **RBAC:** `user.role === 'admin'` untuk admin actions. `canEditTask` = admin OR creator OR assignee.
+- **RBAC:** `user.role === 'admin'` untuk admin actions. `canEditTask` = admin OR creator OR assignee (cek `task.assignees[]`).
+- **Multiple assignees:** `task.assignees` (many2many via `task_assignees`). `assignee_id` legacy tetap diisi dengan assignee pertama. `normalizeTasks()` di `refreshTasks`/`fetchAll` fallback ke `[task.assignee]` jika `assignees` kosong (data lama).
+- **Assignee checkbox panel:** pakai `localAssigneeIds` state (optimistic) — tidak bergantung pada API refresh untuk update visual.
 - **Debounce status update:** `statusTimersRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map())` — 600ms delay.
 - **Lazy tab loading:** `loadedTabsRef = useRef<Set<string>>(new Set())` — tab hanya di-fetch sekali.
 - **Board pagination:** `colPage` state + `PAGE_SIZE = 10` per kolom.
 - **Optimistic UI:** status change di-update state lokal dulu, rollback kalau API gagal.
 - **Active clock-in state:** `activeLogs` (per project) + `myActiveLog` (current user) di-fetch paralel via `Promise.all`. `myActiveElsewhere` = user sedang aktif di task lain → disable Clock In + tampilkan amber warning banner.
+- **Clock-in per user:** time log dicatat untuk user yang login (bukan semua assignee). Setiap assignee clock in sendiri-sendiri.
 
 ---
 
@@ -193,6 +197,8 @@ GET    /api/projects/:id/active-logs
 - Field baru di model harus punya `default` GORM tag agar data lama tidak null.
 - Enrichment field dari JOIN pakai `gorm:"-"` (tidak disimpan, hanya untuk response).
 - Selalu tambah route baru di `cmd/main.go`.
+- **Task delete wajib hapus related records** — tidak ada DB CASCADE. `taskRepository.Delete()` sudah hapus `task_time_logs`, `task_history`, `task_attachments`, `task_assignees` sebelum hapus task.
+- **SetAssignees** pakai `db.Model(task).Association("Assignees").Replace(users)` — replace all, bukan append.
 
 ### Frontend
 - **Gunakan `useToast()` untuk semua notifikasi** — jangan buat state toast lokal.
