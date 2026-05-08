@@ -328,72 +328,72 @@ export default function DashboardPage() {
       <div className="mx-auto max-w-7xl space-y-6 p-4 sm:p-6">
 
         {/* ── Header ── */}
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight text-white">Project Dashboard</h1>
-            <p className="text-slate-500 text-sm mt-0.5">
-              Selamat datang, <span className="text-slate-300 font-medium">{user?.name}</span>
-              {' '}·{' '}
-              <span className="text-slate-600">
-                Update: {lastRefresh.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
-              </span>
-            </p>
-          </div>
-          <div className="flex flex-col gap-2 sm:items-end">
-            {/* Project selector */}
-            <div className="max-w-full overflow-x-auto rounded-xl border border-slate-700 bg-slate-900 p-1">
-              <div className="flex min-w-max items-center gap-1.5">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-4">
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight text-white">Project Dashboard</h1>
+              <p className="text-slate-500 text-sm mt-0.5">
+                Selamat datang, <span className="text-slate-300 font-medium">{user?.name}</span>
+                {' '}·{' '}
+                <span className="text-slate-600">
+                  Update: {lastRefresh.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
+                </span>
+              </p>
+            </div>
+            {/* Tabs Overview / Team Workload */}
+            <div className="flex rounded-lg border border-slate-800 bg-slate-900 p-0.5 ml-2">
+              {([['overview', 'Overview'], ['workload', 'Team Workload']] as const).map(([id, label]) => (
                 <button
-                  onClick={() => setSelectedId(null)}
-                  className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-                    selectedId === null
+                  key={id}
+                  onClick={() => setActiveTab(id)}
+                  className={`rounded-md px-3.5 py-1.5 text-sm font-medium transition-colors ${
+                    activeTab === id
                       ? 'bg-indigo-600 text-white'
                       : 'text-slate-400 hover:text-white hover:bg-slate-800'
                   }`}
                 >
-                  Semua
+                  {label}
                 </button>
-                {stats.map(s => (
-                  <button
-                    key={s.project.id}
-                    onClick={() => setSelectedId(s.project.id)}
-                    className={`max-w-[140px] truncate rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-                      selectedId === s.project.id
-                        ? 'bg-indigo-600 text-white'
-                        : 'text-slate-400 hover:text-white hover:bg-slate-800'
-                    }`}
-                    title={s.project.name}
-                  >
-                    {s.project.name}
-                  </button>
-                ))}
-              </div>
+              ))}
             </div>
-            <button
-              onClick={() => load(true)} disabled={refreshing}
-              className="flex min-h-11 items-center justify-center gap-1.5 rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-400 transition-colors hover:border-slate-500 hover:text-white sm:self-end"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
-              <span>Refresh</span>
-            </button>
           </div>
+          <button
+            onClick={() => load(true)} disabled={refreshing}
+            className="flex items-center gap-1.5 rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-400 transition-colors hover:border-slate-500 hover:text-white shrink-0"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+            <span>Refresh</span>
+          </button>
         </div>
 
-        {/* ── Tabs ── */}
-        <div className="flex rounded-xl border border-slate-800 bg-slate-900 p-1 w-fit">
-          {([['overview', 'Overview'], ['workload', 'Team Workload']] as const).map(([id, label]) => (
+        {/* ── Project filter chips ── */}
+        <div className="overflow-x-auto outline-none" tabIndex={-1}>
+          <div className="flex min-w-max items-center gap-1.5 pb-0.5">
             <button
-              key={id}
-              onClick={() => setActiveTab(id)}
-              className={`rounded-lg px-4 py-1.5 text-sm font-medium transition-colors ${
-                activeTab === id
+              onClick={() => setSelectedId(null)}
+              className={`rounded-full px-3 py-1 text-xs font-medium transition-colors whitespace-nowrap ${
+                selectedId === null
                   ? 'bg-indigo-600 text-white'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                  : 'bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700'
               }`}
             >
-              {label}
+              Semua
             </button>
-          ))}
+            {stats.map(s => (
+              <button
+                key={s.project.id}
+                onClick={() => setSelectedId(s.project.id)}
+                className={`rounded-full px-3 py-1 text-xs font-medium transition-colors whitespace-nowrap ${
+                  selectedId === s.project.id
+                    ? 'bg-indigo-600 text-white'
+                    : 'bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700'
+                }`}
+                title={s.project.name}
+              >
+                {s.project.name}
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* ── Project context banner (saat project dipilih) ── */}
