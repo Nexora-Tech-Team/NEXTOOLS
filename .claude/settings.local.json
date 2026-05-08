@@ -53,7 +53,9 @@
       "Bash(gh pr *)",
       "Bash(gh auth *)",
       "Bash(node_modules/.bin/prisma db *)",
-      "Bash(xargs ls)"
+      "Bash(xargs ls)",
+      "Bash(grep -E \"\\\\.tsx$\")",
+      "Bash(npx prisma *)"
     ]
   }
 }
