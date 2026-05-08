@@ -202,6 +202,17 @@ export default function DashboardPage() {
   const [teamLoading, setTeamLoading] = useState(false);
   const [wlExpanded,  setWlExpanded]  = useState<number | null>(null); // expanded user id
   const [activeTab,   setActiveTab]   = useState<'overview' | 'workload'>('overview');
+  const [filterOpen,  setFilterOpen]  = useState(false);
+
+  useEffect(() => {
+    if (!filterOpen) return;
+    const handler = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest('[data-filter-dropdown]')) setFilterOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [filterOpen]);
 
   const load = useCallback(async (isRefresh = false) => {
     if (isRefresh) {
@@ -328,72 +339,79 @@ export default function DashboardPage() {
       <div className="mx-auto max-w-7xl space-y-6 p-4 sm:p-6">
 
         {/* ── Header ── */}
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight text-white">Project Dashboard</h1>
-            <p className="text-slate-500 text-sm mt-0.5">
-              Selamat datang, <span className="text-slate-300 font-medium">{user?.name}</span>
-              {' '}·{' '}
-              <span className="text-slate-600">
-                Update: {lastRefresh.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
-              </span>
-            </p>
-          </div>
-          <div className="flex flex-col gap-2 sm:items-end">
-            {/* Project selector */}
-            <div className="max-w-full overflow-x-auto rounded-xl border border-slate-700 bg-slate-900 p-1">
-              <div className="flex min-w-max items-center gap-1.5">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-4">
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight text-white">Project Dashboard</h1>
+              <p className="text-slate-500 text-sm mt-0.5">
+                Selamat datang, <span className="text-slate-300 font-medium">{user?.name}</span>
+                {' '}·{' '}
+                <span className="text-slate-600">
+                  Update: {lastRefresh.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
+                </span>
+              </p>
+            </div>
+            {/* Tabs Overview / Team Workload */}
+            <div className="flex rounded-lg border border-slate-800 bg-slate-900 p-0.5 ml-2">
+              {([['overview', 'Overview'], ['workload', 'Team Workload']] as const).map(([id, label]) => (
                 <button
-                  onClick={() => setSelectedId(null)}
-                  className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-                    selectedId === null
+                  key={id}
+                  onClick={() => setActiveTab(id)}
+                  className={`rounded-md px-3.5 py-1.5 text-sm font-medium transition-colors ${
+                    activeTab === id
                       ? 'bg-indigo-600 text-white'
                       : 'text-slate-400 hover:text-white hover:bg-slate-800'
                   }`}
                 >
-                  Semua
+                  {label}
                 </button>
-                {stats.map(s => (
-                  <button
-                    key={s.project.id}
-                    onClick={() => setSelectedId(s.project.id)}
-                    className={`max-w-[140px] truncate rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-                      selectedId === s.project.id
-                        ? 'bg-indigo-600 text-white'
-                        : 'text-slate-400 hover:text-white hover:bg-slate-800'
-                    }`}
-                    title={s.project.name}
-                  >
-                    {s.project.name}
-                  </button>
-                ))}
-              </div>
+              ))}
             </div>
-            <button
-              onClick={() => load(true)} disabled={refreshing}
-              className="flex min-h-11 items-center justify-center gap-1.5 rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-400 transition-colors hover:border-slate-500 hover:text-white sm:self-end"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
-              <span>Refresh</span>
-            </button>
           </div>
+          <button
+            onClick={() => load(true)} disabled={refreshing}
+            className="flex items-center gap-1.5 rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-400 transition-colors hover:border-slate-500 hover:text-white shrink-0"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+            <span>Refresh</span>
+          </button>
         </div>
 
-        {/* ── Tabs ── */}
-        <div className="flex rounded-xl border border-slate-800 bg-slate-900 p-1 w-fit">
-          {([['overview', 'Overview'], ['workload', 'Team Workload']] as const).map(([id, label]) => (
-            <button
-              key={id}
-              onClick={() => setActiveTab(id)}
-              className={`rounded-lg px-4 py-1.5 text-sm font-medium transition-colors ${
-                activeTab === id
-                  ? 'bg-indigo-600 text-white'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
-              }`}
-            >
-              {label}
-            </button>
-          ))}
+        {/* ── Project filter dropdown ── */}
+        <div className="relative w-fit" data-filter-dropdown>
+          <button
+            onClick={() => setFilterOpen(v => !v)}
+            className="flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs font-medium text-slate-300 transition-colors hover:border-slate-500 hover:text-white"
+          >
+            <FolderKanban className="w-3.5 h-3.5 text-slate-400" />
+            <span>{selectedId === null ? 'Semua Project' : (selectedProj?.name ?? '—')}</span>
+            <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform ${filterOpen ? 'rotate-180' : ''}`} />
+          </button>
+          {filterOpen && (
+            <div className="absolute left-0 top-full z-20 mt-1 min-w-[200px] max-w-[280px] rounded-xl border border-slate-700 bg-slate-900 py-1 shadow-lg shadow-black/40">
+              <button
+                onClick={() => { setSelectedId(null); setFilterOpen(false); }}
+                className={`w-full px-3 py-2 text-left text-xs transition-colors ${
+                  selectedId === null ? 'text-indigo-400 font-semibold' : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                }`}
+              >
+                Semua Project
+              </button>
+              <div className="my-1 border-t border-slate-800" />
+              {stats.map(s => (
+                <button
+                  key={s.project.id}
+                  onClick={() => { setSelectedId(s.project.id); setFilterOpen(false); }}
+                  className={`w-full truncate px-3 py-2 text-left text-xs transition-colors ${
+                    selectedId === s.project.id ? 'text-indigo-400 font-semibold' : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                  }`}
+                  title={s.project.name}
+                >
+                  {s.project.name}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* ── Project context banner (saat project dipilih) ── */}
