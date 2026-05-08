@@ -192,10 +192,15 @@ export default function ProjectDetailPage() {
     } catch { /* non-critical */ }
   }, [projectId]);
 
+  const normalizeTasks = (list: Task[]) => list.map(t => ({
+    ...t,
+    assignees: t.assignees?.length ? t.assignees : (t.assignee ? [t.assignee] : []),
+  }));
+
   const refreshTasks = useCallback(async () => {
     try {
       const res = await tasksApi.getByProject(projectId);
-      const list = res.data || [];
+      const list = normalizeTasks(res.data || []);
       setTasks(list);
       setSelectedTask(prev => prev ? (list.find(t => t.id === prev.id) ?? null) : null);
       refreshActiveLogs();
@@ -217,7 +222,7 @@ export default function ProjectDetailPage() {
         tasksApi.getMyActiveLog().catch(() => ({ data: null })),
       ]);
       setProject(proj.data);
-      setTasks(taskRes.data || []);
+      setTasks(normalizeTasks(taskRes.data || []));
       setUsers(userRes.data || []);
       setMembers(memberRes.data || []);
       setActiveLogs(activeRes.data ?? []);
