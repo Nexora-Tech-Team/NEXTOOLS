@@ -11,6 +11,7 @@ type TaskRepository interface {
 	FindByProjectID(projectID uint) ([]model.Task, error)
 	FindByID(id uint) (*model.Task, error)
 	UpdateFields(id uint, fields map[string]interface{}) error
+	SetAssignees(taskID uint, userIDs []uint) error
 	Delete(id uint) error
 	CountByProjectID(projectID uint) (int64, error)
 }
@@ -31,8 +32,10 @@ func (r *taskRepository) FindByProjectID(projectID uint) ([]model.Task, error) {
 	var tasks []model.Task
 	err := r.db.
 		Preload("Assignee").
+		Preload("Assignees").
 		Preload("Creator").
 		Preload("Subtasks").
+		Preload("Subtasks.Assignees").
 		Where("project_id = ? AND parent_task_id IS NULL", projectID).
 		Order("created_at desc").
 		Find(&tasks).Error
@@ -41,11 +44,21 @@ func (r *taskRepository) FindByProjectID(projectID uint) ([]model.Task, error) {
 
 func (r *taskRepository) FindByID(id uint) (*model.Task, error) {
 	var task model.Task
-	err := r.db.Preload("Assignee").Preload("Creator").Preload("Subtasks").Preload("Subtasks.Assignee").First(&task, id).Error
+	err := r.db.Preload("Assignee").Preload("Assignees").Preload("Creator").Preload("Subtasks").Preload("Subtasks.Assignee").First(&task, id).Error
 	if err != nil {
 		return nil, err
 	}
 	return &task, nil
+}
+
+func (r *taskRepository) SetAssignees(taskID uint, userIDs []uint) error {
+	task := &model.Task{ID: taskID}
+	users := make([]*model.User, len(userIDs))
+	for i, id := range userIDs {
+		uid := id
+		users[i] = &model.User{ID: uid}
+	}
+	return r.db.Model(task).Association("Assignees").Replace(users)
 }
 
 func (r *taskRepository) UpdateFields(id uint, fields map[string]interface{}) error {

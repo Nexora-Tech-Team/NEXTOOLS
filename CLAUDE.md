@@ -118,8 +118,10 @@ POST   /api/tasks/:id/attachments
 GET    /api/tasks/:id/attachments
 DELETE /api/tasks/:id/attachments/:attachmentId
 
-GET    /api/me/time-logs
+GET    /api/me/time-logs?from=YYYY-MM-DD&to=YYYY-MM-DD
+GET    /api/me/active-log
 GET    /api/time-logs?from=YYYY-MM-DD&to=YYYY-MM-DD
+GET    /api/projects/:id/active-logs
 ```
 
 ---
@@ -132,7 +134,7 @@ GET    /api/time-logs?from=YYYY-MM-DD&to=YYYY-MM-DD
 - `Skeleton.tsx` — `Bone`, `Spinner`, `ProjectCardSkeleton`, `BoardColumnSkeleton`, `DashboardStatSkeleton`, `DashboardRowSkeleton`, `TabContentSkeleton`
 
 ### Key Pages
-- `DashboardPage` — metrics, project health, team workload (week/month + Excel export), time tracking
+- `DashboardPage` — dua tab: **Overview** (metrics, project health full-width, distribusi status/prioritas, overdue table, semua task) dan **Team Workload** (beban kerja tim grid, team workload time logs week/month + Excel export, time tracking calendar)
 - `ProjectDetailPage` — Kanban board, task detail panel (slide-in), task form modal, members panel
 - `ProjectsPage` — project grid
 - `UsersPage` — user management (admin only untuk delete)
@@ -143,6 +145,7 @@ GET    /api/time-logs?from=YYYY-MM-DD&to=YYYY-MM-DD
 - **Lazy tab loading:** `loadedTabsRef = useRef<Set<string>>(new Set())` — tab hanya di-fetch sekali.
 - **Board pagination:** `colPage` state + `PAGE_SIZE = 10` per kolom.
 - **Optimistic UI:** status change di-update state lokal dulu, rollback kalau API gagal.
+- **Active clock-in state:** `activeLogs` (per project) + `myActiveLog` (current user) di-fetch paralel via `Promise.all`. `myActiveElsewhere` = user sedang aktif di task lain → disable Clock In + tampilkan amber warning banner.
 
 ---
 
@@ -179,6 +182,7 @@ GET    /api/time-logs?from=YYYY-MM-DD&to=YYYY-MM-DD
 - Cards masuk: `animate-fade-in` (CSS: `fade-in 0.2s ease-out`)
 - Detail panel: CSS `translate-x` transition (`duration-300`)
 - Skeleton: `animate-pulse`
+- Active indicator: `animate-pulse` pada dot hijau (clock-in aktif) dan dot amber (warning)
 
 ---
 
@@ -197,8 +201,13 @@ GET    /api/time-logs?from=YYYY-MM-DD&to=YYYY-MM-DD
 - Jangan tambah indigo untuk elemen dekoratif — gunakan slate.
 - Attachment paste: ambil hanya 1 item (prefer `image/png`) karena macOS clipboard sering duplikat format.
 
+### Git Workflow
+- Branch development: `dev` (push ke sini untuk review)
+- Branch production: `main` (merge dari `dev` via PR di GitHub → auto-deploy)
+- Remote: `https://github.com/Nexora-Tech-Team/NEXTOOLS`
+
 ### Deploy
-- Push ke `main` → GitHub Actions otomatis deploy ke VPS.
+- Merge PR `dev → main` → GitHub Actions otomatis deploy ke VPS.
 - Secrets yang dipakai: `HOST`, `USERNAME`, `SSH_PRIVATE_KEY`, `PORT`.
 - Frontend: `npm ci --prefer-offline` + `NODE_OPTIONS=--max-old-space-size=2048 npm run build`.
 - Backend + semua container: `docker compose up -d --build` (bukan hanya restart).
