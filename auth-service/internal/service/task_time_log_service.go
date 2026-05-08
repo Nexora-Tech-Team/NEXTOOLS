@@ -16,6 +16,8 @@ type TaskTimeLogService interface {
 	DeleteLog(logID, taskID, userID uint) error
 	GetByDateRange(userID uint, from, to string) ([]*model.TaskTimeLogResponse, error)
 	GetAllByDateRange(from, to string) ([]*model.TaskTimeLogResponse, error)
+	GetActiveByProject(projectID uint) ([]*model.TaskTimeLogResponse, error)
+	GetActiveByUser(userID uint) (*model.TaskTimeLogResponse, error)
 }
 
 type taskTimeLogService struct {
@@ -32,8 +34,12 @@ func (s *taskTimeLogService) ClockIn(taskID, userID uint, clockIn *time.Time) (*
 		return nil, errors.New("task not found")
 	}
 
-	if existing, err := s.logRepo.FindActiveByUserAndTask(userID, taskID); err == nil && existing != nil {
-		return nil, errors.New("you already have an active clock-in for this task")
+	// Prevent clock-in if user already has ANY active session (same or different task)
+	if active, err := s.logRepo.FindActiveByUser(userID); err == nil && active != nil {
+		if active.TaskID == taskID {
+			return nil, errors.New("kamu sudah clock-in di task ini")
+		}
+		return nil, errors.New("kamu sedang aktif di task lain, clock out dulu sebelum pindah task")
 	}
 
 	t := time.Now()
@@ -164,4 +170,24 @@ func (s *taskTimeLogService) GetAllByDateRange(from, to string) ([]*model.TaskTi
 		result = append(result, logs[i].ToResponse())
 	}
 	return result, nil
+}
+
+func (s *taskTimeLogService) GetActiveByProject(projectID uint) ([]*model.TaskTimeLogResponse, error) {
+	logs, err := s.logRepo.FindActiveByProject(projectID)
+	if err != nil {
+		return nil, err
+	}
+	var result []*model.TaskTimeLogResponse
+	for i := range logs {
+		result = append(result, logs[i].ToResponse())
+	}
+	return result, nil
+}
+
+func (s *taskTimeLogService) GetActiveByUser(userID uint) (*model.TaskTimeLogResponse, error) {
+	log, err := s.logRepo.FindActiveByUser(userID)
+	if err != nil {
+		return nil, err
+	}
+	return log.ToResponse(), nil
 }

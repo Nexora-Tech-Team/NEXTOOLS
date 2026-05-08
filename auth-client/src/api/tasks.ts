@@ -54,4 +54,10 @@ export const tasksApi = {
 
   getAllTimeLogs: (from: string, to: string) =>
     api.get<{ data: TaskTimeLog[] }>(`/time-logs?from=${from}&to=${to}`).then((r) => r.data),
+
+  getMyActiveLog: () =>
+    api.get<{ data: TaskTimeLog | null }>('/me/active-log').then((r) => r.data),
+
+  getActiveLogsByProject: (projectId: number) =>
+    api.get<{ data: TaskTimeLog[] }>(`/projects/${projectId}/active-logs`).then((r) => r.data),
 };
