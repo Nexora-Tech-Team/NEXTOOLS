@@ -1842,7 +1842,8 @@ function TimeTrackingSection({
             {myActiveElsewhere.project_id && (
               <a
                 href={`/projects/${myActiveElsewhere.project_id}`}
-                className="self-start underline underline-offset-2 hover:text-amber-300 transition-colors"
+                onClick={e => e.stopPropagation()}
+                className="self-start underline underline-offset-2 hover:text-amber-300 transition-colors font-medium"
               >
                 Pergi ke project →
               </a>
