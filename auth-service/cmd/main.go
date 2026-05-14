@@ -62,6 +62,7 @@ func main() {
 		AllowOrigins: []string{
 			"https://nextools.nexoratech.co",
 			"http://localhost:5173",
+			"http://localhost:3006",
 		},
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},

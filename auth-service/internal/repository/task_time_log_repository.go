@@ -58,6 +58,17 @@ func (r *taskTimeLogRepository) FindActiveByUser(userID uint) (*model.TaskTimeLo
 	if err != nil {
 		return nil, err
 	}
+	var ex taskExtra
+	r.db.Raw(`
+		SELECT t.title as task_title, t.project_id, p.name as project_name,
+		       t.category as task_category, t.priority as task_priority, t.status as task_status
+		FROM tasks t
+		LEFT JOIN projects p ON p.id = t.project_id
+		WHERE t.id = ?
+	`, log.TaskID).Scan(&ex)
+	log.TaskTitle   = ex.TaskTitle
+	log.ProjectID   = ex.ProjectID
+	log.ProjectName = ex.ProjectName
 	return &log, nil
 }
 
@@ -70,6 +81,7 @@ func (r *taskTimeLogRepository) FindActiveByProject(projectID uint) ([]model.Tas
 	if err != nil {
 		return nil, err
 	}
+	r.enrichLogs(logs)
 	return logs, nil
 }
 

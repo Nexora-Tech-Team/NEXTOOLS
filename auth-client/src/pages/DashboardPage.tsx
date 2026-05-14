@@ -1,11 +1,13 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   FolderKanban, CheckCircle2, Clock, AlertCircle, Loader2,
   ArrowRight, RefreshCw, TrendingUp, Users, ShieldAlert,
   Flame, Activity, Timer, ChevronLeft, ChevronRight,
-  Users2, ChevronDown, ChevronUp, Download,
+  Users2, ChevronDown, ChevronUp, Download, Play, Square,
+  LayoutDashboard, History,
 } from 'lucide-react';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { DashboardStatSkeleton, DashboardRowSkeleton } from '../components/Skeleton';
 import { useAuth } from '../context/useAuth';
 import { projectsApi } from '../api/projects';
@@ -55,6 +57,19 @@ function getProjectStatusLabel(projectId: number, key: string): string {
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function fmtDuration(sec: number) {
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+  if (h > 0) return `${h}j ${String(m).padStart(2,'0')}m`;
+  if (m > 0) return `${m}m ${String(s).padStart(2,'0')}d`;
+  return `${s}d`;
+}
+
+function fmtTime(iso: string) {
+  return new Date(iso).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+}
 
 function isOverdue(t: Task) {
   if (!t.due_date || t.status === 'done') return false;
@@ -201,8 +216,14 @@ export default function DashboardPage() {
   const [teamLogs,    setTeamLogs]    = useState<TaskTimeLog[]>([]);
   const [teamLoading, setTeamLoading] = useState(false);
   const [wlExpanded,  setWlExpanded]  = useState<number | null>(null); // expanded user id
-  const [activeTab,   setActiveTab]   = useState<'overview' | 'workload'>('overview');
+  const [activeTab,   setActiveTab]   = useState<'mydashboard' | 'overview' | 'workload'>('mydashboard');
   const [filterOpen,  setFilterOpen]  = useState(false);
+
+  // My Dashboard state
+  const [myActiveLog,   setMyActiveLog]   = useState<TaskTimeLog | null>(null);
+  const [myTodayLogs,   setMyTodayLogs]   = useState<TaskTimeLog[]>([]);
+  const [myWeekLogs,    setMyWeekLogs]    = useState<TaskTimeLog[]>([]);
+  const [myLogLoading,  setMyLogLoading]  = useState(false);
 
   useEffect(() => {
     if (!filterOpen) return;
@@ -243,6 +264,26 @@ export default function DashboardPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    const today = new Date().toISOString().substring(0, 10);
+    const day = new Date().getDay();
+    const monday = new Date();
+    monday.setDate(monday.getDate() - ((day + 6) % 7));
+    const weekFrom = monday.toISOString().substring(0, 10);
+    const sunday = new Date(monday); sunday.setDate(monday.getDate() + 6);
+    const weekTo = sunday.toISOString().substring(0, 10);
+    setMyLogLoading(true);
+    Promise.all([
+      tasksApi.getMyActiveLog().catch(() => ({ data: null })),
+      tasksApi.getMyTimeLogs(today, today).catch(() => ({ data: [] })),
+      tasksApi.getMyTimeLogs(weekFrom, weekTo).catch(() => ({ data: [] })),
+    ]).then(([active, todayRes, weekRes]) => {
+      setMyActiveLog(active.data ?? null);
+      setMyTodayLogs((todayRes.data ?? []).filter(l => !!l.clock_out));
+      setMyWeekLogs(weekRes.data ?? []);
+    }).finally(() => setMyLogLoading(false));
+  }, []);
 
   useEffect(() => {
     const { year, month } = calMonth;
@@ -351,9 +392,9 @@ export default function DashboardPage() {
                 </span>
               </p>
             </div>
-            {/* Tabs Overview / Team Workload */}
+            {/* Tabs */}
             <div className="flex rounded-lg border border-slate-800 bg-slate-900 p-0.5 ml-2">
-              {([['overview', 'Overview'], ['workload', 'Team Workload']] as const).map(([id, label]) => (
+              {([['mydashboard', 'My Dashboard'], ['overview', 'Overview'], ['workload', 'Team Workload']] as const).map(([id, label]) => (
                 <button
                   key={id}
                   onClick={() => setActiveTab(id)}
@@ -476,6 +517,18 @@ export default function DashboardPage() {
             highlight={overdueTasks.length > 0 ? 'red' : undefined}
           />
         </div>
+
+        {activeTab === 'mydashboard' && (
+          <MyDashboard
+            user={user}
+            allStats={stats}
+            myActiveLog={myActiveLog}
+            myTodayLogs={myTodayLogs}
+            myWeekLogs={myWeekLogs}
+            loading={myLogLoading}
+            navigate={navigate}
+          />
+        )}
 
         {activeTab === 'overview' && (<>
 
@@ -1477,6 +1530,293 @@ function EmptyState({ label, sub, action, onClick }: { label: string; sub?: stri
           {action}
         </button>
       )}
+    </div>
+  );
+}
+
+// ─── My Dashboard ─────────────────────────────────────────────────────────────
+
+const STATUS_ORDER = ['in_progress', 'review', 'todo', 'backlog', 'done'];
+
+function MyDashboard({ user, allStats, myActiveLog, myTodayLogs, myWeekLogs, loading, navigate }: {
+  user: User | null;
+  allStats: ProjectStat[];
+  myActiveLog: TaskTimeLog | null;
+  myTodayLogs: TaskTimeLog[];
+  myWeekLogs: TaskTimeLog[];
+  loading: boolean;
+  navigate: ReturnType<typeof useNavigate>;
+}) {
+  const [tick, setTick] = useState(0);
+  const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    if (myActiveLog) {
+      tickRef.current = setInterval(() => setTick(t => t + 1), 1000);
+    } else {
+      if (tickRef.current) clearInterval(tickRef.current);
+    }
+    return () => { if (tickRef.current) clearInterval(tickRef.current); };
+  }, [myActiveLog]);
+
+  void tick;
+
+  const userId = user?.id;
+
+  // My tasks: assigned to me across all projects, excluding done
+  const myTasks = allStats
+    .flatMap(s => s.tasks.map(t => ({ ...t, projectName: s.project.name, projectId: s.project.id })))
+    .filter(t => t.assignee_id === userId || (t.assignees ?? []).some((a: User) => a.id === userId));
+
+  // My projects: projects where I have at least one task
+  const myProjectIds = new Set(myTasks.map(t => t.projectId));
+  const myProjects = allStats.filter(s => myProjectIds.has(s.project.id));
+
+  // Tasks grouped by status
+  const tasksByStatus: Record<string, typeof myTasks> = {};
+  for (const t of myTasks) {
+    (tasksByStatus[t.status] ??= []).push(t);
+  }
+
+  // Today's total hours
+  const todaySeconds = myTodayLogs.reduce((s, l) => s + l.duration, 0);
+
+  // Active clock live seconds
+  const activeSec = myActiveLog
+    ? Math.floor((Date.now() - new Date(myActiveLog.clock_in).getTime()) / 1000)
+    : 0;
+
+  // Workload chart: hours per day this week (Mon-Sun)
+  const DAY_LABELS = ['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min'];
+  const now = new Date();
+  const todayDow = now.getDay(); // 0=Sun
+  const monday = new Date(now);
+  monday.setDate(now.getDate() - ((todayDow + 6) % 7));
+  monday.setHours(0, 0, 0, 0);
+
+  const chartData = DAY_LABELS.map((label, i) => {
+    const day = new Date(monday);
+    day.setDate(monday.getDate() + i);
+    const dayStr = day.toISOString().substring(0, 10);
+    const hours = myWeekLogs
+      .filter(l => l.clock_out && l.clock_in.substring(0, 10) === dayStr)
+      .reduce((s, l) => s + l.duration, 0) / 3600;
+    const isToday = dayStr === now.toISOString().substring(0, 10);
+    return { label, hours: Math.round(hours * 10) / 10, isToday };
+  });
+
+  const totalWeekHours = chartData.reduce((s, d) => s + d.hours, 0);
+
+  return (
+    <div className="space-y-5">
+
+      {/* ── Active Clock Banner ── */}
+      {myActiveLog && (
+        <div className="flex flex-col gap-3 rounded-xl border border-green-500/30 bg-green-500/10 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-3">
+            <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse flex-shrink-0" />
+            <div>
+              <p className="text-green-300 font-semibold text-sm">Sedang Clock In</p>
+              <p className="text-green-500 text-xs mt-0.5">
+                {myActiveLog.task_title ?? `Task #${myActiveLog.task_id}`}
+                {myActiveLog.project_name ? ` · ${myActiveLog.project_name}` : ''}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="font-mono text-green-300 text-lg font-bold">{fmtDuration(activeSec)}</span>
+            {myActiveLog.project_id && (
+              <button
+                onClick={() => navigate(`/projects/${myActiveLog.project_id}`)}
+                className="flex items-center gap-1.5 rounded-lg border border-green-500/30 px-3 py-1.5 text-xs text-green-400 hover:bg-green-500/10 transition-colors"
+              >
+                Buka Task <ArrowRight className="w-3 h-3" />
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Summary Cards ── */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
+          <p className="text-slate-500 text-xs mb-1">Jam Kerja Hari Ini</p>
+          <p className="text-white font-bold text-2xl font-mono">{fmtDuration(todaySeconds + (myActiveLog ? activeSec : 0))}</p>
+          <p className="text-slate-600 text-xs mt-1">{myTodayLogs.length} sesi selesai</p>
+        </div>
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
+          <p className="text-slate-500 text-xs mb-1">Task Saya</p>
+          <p className="text-white font-bold text-2xl">{myTasks.filter(t => t.status !== 'done').length}</p>
+          <p className="text-slate-600 text-xs mt-1">{myTasks.filter(t => t.status === 'done').length} selesai</p>
+        </div>
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
+          <p className="text-slate-500 text-xs mb-1">Sedang Dikerjakan</p>
+          <p className="text-yellow-400 font-bold text-2xl">{myTasks.filter(t => t.status === 'in_progress').length}</p>
+          <p className="text-slate-600 text-xs mt-1">task in progress</p>
+        </div>
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
+          <p className="text-slate-500 text-xs mb-1">Overdue</p>
+          <p className={`font-bold text-2xl ${myTasks.filter(isOverdue).length > 0 ? 'text-red-400' : 'text-white'}`}>
+            {myTasks.filter(isOverdue).length}
+          </p>
+          <p className="text-slate-600 text-xs mt-1">task melewati deadline</p>
+        </div>
+      </div>
+
+      {/* ── Row: My Projects + My Tasks ── */}
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+
+        {/* My Projects */}
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <FolderKanban className="w-4 h-4 text-indigo-400" />
+            <h2 className="text-sm font-semibold text-slate-100">Project Saya</h2>
+          </div>
+          {myProjects.length === 0 ? (
+            <EmptyState label="Belum ada project" sub="Kamu belum terlibat di project manapun" />
+          ) : (
+            <div className="space-y-3">
+              {myProjects.map(({ project, tasks }) => {
+                const myTasksInProj = tasks.filter(t =>
+                  t.assignee_id === userId || (t.assignees ?? []).some((a: User) => a.id === userId)
+                );
+                const done = myTasksInProj.filter(t => t.status === 'done').length;
+                const total = myTasksInProj.length;
+                const pct = total ? Math.round((done / total) * 100) : 0;
+                const overdue = myTasksInProj.filter(isOverdue).length;
+                return (
+                  <div key={project.id}
+                    className="flex items-center gap-3 rounded-xl border border-slate-800 px-3 py-2.5 hover:border-slate-700 transition-colors cursor-pointer"
+                    onClick={() => navigate(`/projects/${project.id}`)}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <span className="text-white text-sm font-medium truncate">{project.name}</span>
+                        {overdue > 0 && (
+                          <span className="text-[10px] text-red-400 bg-red-500/10 px-1.5 py-0.5 rounded-full flex-shrink-0">{overdue} overdue</span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1 h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                          <div className={`h-full rounded-full ${pct === 100 ? 'bg-green-500' : 'bg-indigo-500'}`} style={{ width: `${pct}%` }} />
+                        </div>
+                        <span className="text-slate-500 text-xs flex-shrink-0">{done}/{total}</span>
+                      </div>
+                    </div>
+                    <ArrowRight className="w-3.5 h-3.5 text-slate-600 flex-shrink-0" />
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* My Tasks */}
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <CheckCircle2 className="w-4 h-4 text-green-400" />
+            <h2 className="text-sm font-semibold text-slate-100">Task Saya</h2>
+          </div>
+          {myTasks.filter(t => t.status !== 'done').length === 0 ? (
+            <EmptyState label="Tidak ada task aktif" sub="Semua task sudah selesai 🎉" />
+          ) : (
+            <div className="space-y-1 max-h-64 overflow-y-auto pr-1">
+              {STATUS_ORDER.filter(s => s !== 'done').flatMap(status => {
+                const tasks = tasksByStatus[status] ?? [];
+                if (tasks.length === 0) return [];
+                const cfg = getStatusCfg(status);
+                return tasks.map(t => (
+                  <div key={t.id}
+                    className="flex items-center gap-2.5 rounded-lg px-2.5 py-2 hover:bg-slate-800 transition-colors cursor-pointer"
+                    onClick={() => navigate(`/projects/${t.projectId}`)}
+                  >
+                    <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${cfg.bar}`} />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-white text-xs truncate">{t.title}</p>
+                      <p className="text-slate-600 text-[10px] truncate">{(t as { projectName?: string }).projectName}</p>
+                    </div>
+                    <div className="flex items-center gap-1.5 flex-shrink-0">
+                      {isOverdue(t) && <span className="text-[10px] text-red-400">overdue</span>}
+                      {t.due_date && !isOverdue(t) && isDueSoon(t) && (
+                        <span className="text-[10px] text-yellow-400">{fmtDate(String(t.due_date))}</span>
+                      )}
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded ${cfg.text} bg-slate-800`}>{cfg.label}</span>
+                    </div>
+                  </div>
+                ));
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── Workload Chart ── */}
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <Activity className="w-4 h-4 text-indigo-400" />
+            <h2 className="text-sm font-semibold text-slate-100">Workload Minggu Ini</h2>
+          </div>
+          <span className="text-slate-500 text-xs">{totalWeekHours.toFixed(1)} jam total</span>
+        </div>
+        {loading ? (
+          <div className="h-40 flex items-center justify-center text-slate-600 text-xs animate-pulse">Memuat data…</div>
+        ) : (
+          <ResponsiveContainer width="100%" height={160}>
+            <BarChart data={chartData} barCategoryGap="30%">
+              <XAxis dataKey="label" tick={{ fill: '#64748b', fontSize: 11 }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fill: '#64748b', fontSize: 10 }} axisLine={false} tickLine={false} unit="j" width={28} />
+              <Tooltip
+                cursor={{ fill: 'rgba(99,102,241,0.08)' }}
+                contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8, fontSize: 11 }}
+                formatter={(v: number) => [`${v} jam`, 'Durasi']}
+              />
+              <Bar dataKey="hours" radius={[4, 4, 0, 0]}>
+                {chartData.map((entry, i) => (
+                  <Cell key={i} fill={entry.isToday ? '#6366f1' : '#334155'} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        )}
+      </div>
+
+      {/* ── Recent Clock History ── */}
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5">
+        <div className="flex items-center gap-2 mb-4">
+          <History className="w-4 h-4 text-slate-400" />
+          <h2 className="text-sm font-semibold text-slate-100">Riwayat Clock Hari Ini</h2>
+        </div>
+        {myTodayLogs.length === 0 && !myActiveLog ? (
+          <EmptyState label="Belum ada sesi hari ini" />
+        ) : (
+          <div className="space-y-1.5">
+            {myActiveLog && (
+              <div className="flex items-center gap-3 rounded-lg border border-green-500/20 bg-green-500/5 px-3 py-2">
+                <Play className="w-3 h-3 text-green-400 fill-current flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-white text-xs truncate">{myActiveLog.task_title ?? `Task #${myActiveLog.task_id}`}</p>
+                  <p className="text-green-500 text-[10px]">{fmtTime(myActiveLog.clock_in)} → sedang berjalan</p>
+                </div>
+                <span className="font-mono text-green-400 text-xs">{fmtDuration(activeSec)}</span>
+              </div>
+            )}
+            {[...myTodayLogs].reverse().map(log => (
+              <div key={log.id} className="flex items-center gap-3 rounded-lg px-3 py-2 hover:bg-slate-800 transition-colors">
+                <Square className="w-3 h-3 text-slate-500 fill-current flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-slate-300 text-xs truncate">{log.task_title ?? `Task #${log.task_id}`}</p>
+                  <p className="text-slate-600 text-[10px]">
+                    {fmtTime(log.clock_in)} → {log.clock_out ? fmtTime(log.clock_out) : '—'}
+                  </p>
+                </div>
+                <span className="text-slate-500 text-xs font-mono">{fmtDuration(log.duration)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
     </div>
   );
 }
