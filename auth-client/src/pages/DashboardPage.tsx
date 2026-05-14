@@ -1612,28 +1612,47 @@ function MyDashboard({ user, allStats, myActiveLog, myTodayLogs, myWeekLogs, loa
 
       {/* ── Active Clock Banner ── */}
       {myActiveLog && (
-        <div className="flex flex-col gap-3 rounded-xl border border-green-500/30 bg-green-500/10 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-3">
-            <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse flex-shrink-0" />
-            <div>
+        <div className="rounded-xl border border-green-500/30 bg-green-500/10 px-4 py-4 space-y-3">
+          {/* Header row */}
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse flex-shrink-0" />
               <p className="text-green-300 font-semibold text-sm">Sedang Clock In</p>
-              <p className="text-green-500 text-xs mt-0.5">
-                {myActiveLog.task_title ?? `Task #${myActiveLog.task_id}`}
-                {myActiveLog.project_name ? ` · ${myActiveLog.project_name}` : ''}
-              </p>
             </div>
+            <span className="font-mono text-green-300 text-xl font-bold">{fmtDuration(activeSec)}</span>
           </div>
-          <div className="flex items-center gap-3">
-            <span className="font-mono text-green-300 text-lg font-bold">{fmtDuration(activeSec)}</span>
-            {myActiveLog.project_id && (
-              <button
-                onClick={() => navigate(`/projects/${myActiveLog.project_id}`)}
-                className="flex items-center gap-1.5 rounded-lg border border-green-500/30 px-3 py-1.5 text-xs text-green-400 hover:bg-green-500/10 transition-colors"
-              >
-                Buka Task <ArrowRight className="w-3 h-3" />
-              </button>
+
+          {/* Detail info */}
+          <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2 text-xs">
+            <div className="flex items-start gap-2">
+              <span className="text-green-600 flex-shrink-0 mt-0.5">Task</span>
+              <span className="text-green-200 font-medium">{myActiveLog.task_title ?? `Task #${myActiveLog.task_id}`}</span>
+            </div>
+            <div className="flex items-start gap-2">
+              <span className="text-green-600 flex-shrink-0 mt-0.5">Project</span>
+              <span className="text-green-200 font-medium">{myActiveLog.project_name ?? '—'}</span>
+            </div>
+            <div className="flex items-start gap-2">
+              <span className="text-green-600 flex-shrink-0 mt-0.5">Mulai</span>
+              <span className="text-green-400">{new Date(myActiveLog.clock_in).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}</span>
+            </div>
+            {myActiveLog.category && (
+              <div className="flex items-start gap-2">
+                <span className="text-green-600 flex-shrink-0 mt-0.5">Kategori</span>
+                <span className="text-green-400">{myActiveLog.category}</span>
+              </div>
             )}
           </div>
+
+          {/* Action button */}
+          {myActiveLog.project_id && (
+            <button
+              onClick={() => navigate(`/projects/${myActiveLog.project_id}`)}
+              className="flex items-center gap-1.5 rounded-lg border border-green-500/30 px-3 py-1.5 text-xs text-green-400 hover:bg-green-500/20 transition-colors"
+            >
+              Buka Project <ArrowRight className="w-3 h-3" />
+            </button>
+          )}
         </div>
       )}
 
