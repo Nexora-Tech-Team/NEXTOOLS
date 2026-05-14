@@ -16,6 +16,7 @@ API production: **https://api-nextools.nexoratech.co**
 - Axios (`src/api/`)
 - SheetJS / xlsx (Excel export)
 - Lucide React (icons)
+- Recharts (bar chart workload di My Dashboard)
 
 ### Backend (`auth-service/`)
 - Go + Gin framework
@@ -27,7 +28,8 @@ API production: **https://api-nextools.nexoratech.co**
 ### Infrastructure
 - Docker Compose (VPS): `nextools-frontend` (nginx), `nextools-backend` (golang:1.24), `nextools-db` (postgres:16)
 - Traefik reverse proxy + TLS
-- CI/CD: GitHub Actions → SSH deploy → `git reset --hard` + `npm run build` + `docker compose restart`
+- CI/CD: GitHub Actions → SSH deploy → `git reset --hard` + `npm run build` + `docker compose up -d --build`
+- Nginx proxy: `/api/*` di-forward ke `http://nextools-backend:8090/api/` via `nginx.conf` (jangan pakai `VITE_API_URL` di production — gunakan proxy nginx)
 - DB volume: `nextools-db-data` (persistent, never recreated on deploy)
 
 ---
@@ -135,7 +137,11 @@ GET    /api/projects/:id/active-logs
 - `Skeleton.tsx` — `Bone`, `Spinner`, `ProjectCardSkeleton`, `BoardColumnSkeleton`, `DashboardStatSkeleton`, `DashboardRowSkeleton`, `TabContentSkeleton`
 
 ### Key Pages
-- `DashboardPage` — header: judul + tabs inline kiri, dropdown filter project, refresh button kanan. Dua tab: **Overview** (metrics, project health full-width, distribusi status/prioritas, overdue table, semua task) dan **Team Workload** (beban kerja tim grid, team workload time logs week/month + Excel export, time tracking calendar). Orphan time logs (task sudah dihapus) difilter dari tampilan.
+- `DashboardPage` — header: judul + tabs inline kiri, dropdown filter project, refresh button kanan. Tiga tab:
+  - **My Dashboard** (default) — banner aktif clock-in (task, project, jam mulai, timer live, tombol buka project), 4 summary card (jam kerja hari ini, task saya, in progress, overdue), My Projects (card per project + progress bar), My Tasks (list per status, klik ke project), Workload bar chart Senin–Minggu (recharts), Riwayat Clock Hari Ini.
+  - **Overview** — metrics, project health full-width, distribusi status/prioritas, overdue table, semua task.
+  - **Team Workload** — beban kerja tim grid, team workload time logs week/month + Excel export, time tracking calendar.
+  - Orphan time logs (task sudah dihapus) difilter dari tampilan.
 - `ProjectDetailPage` — Kanban board, task detail panel (slide-in), task form modal, members panel
 - `ProjectsPage` — project grid
 - `UsersPage` — user management (admin only untuk delete)
@@ -148,8 +154,11 @@ GET    /api/projects/:id/active-logs
 - **Lazy tab loading:** `loadedTabsRef = useRef<Set<string>>(new Set())` — tab hanya di-fetch sekali.
 - **Board pagination:** `colPage` state + `PAGE_SIZE = 10` per kolom.
 - **Optimistic UI:** status change di-update state lokal dulu, rollback kalau API gagal.
-- **Active clock-in state:** `activeLogs` (per project) + `myActiveLog` (current user) di-fetch paralel via `Promise.all`. `myActiveElsewhere` = user sedang aktif di task lain → disable Clock In + tampilkan amber warning banner.
+- **Active clock-in state:** `activeLogs` (per project) + `myActiveLog` (current user) di-fetch paralel via `Promise.all`. `myActiveElsewhere` = user sedang aktif di task lain → disable Clock In + tampilkan amber warning banner dengan nama project, task, dan link "Pergi ke project".
 - **Clock-in per user:** time log dicatat untuk user yang login (bukan semua assignee). Setiap assignee clock in sendiri-sendiri.
+- **Enriched time log response:** `FindActiveByUser` dan `FindActiveByProject` di repository melakukan raw SQL JOIN untuk mengisi `task_title`, `project_id`, `project_name` — field ini `gorm:"-"` (tidak di DB, hanya di response).
+- **CORS:** `cmd/main.go` allow origins: `https://nextools.nexoratech.co`, `http://localhost:5173`, `http://localhost:3006`.
+- **API base URL:** frontend pakai `import.meta.env.VITE_API_URL || '/api'`. Di production, nginx proxy `/api/` ke backend (tidak pakai env var).
 
 ---
 
