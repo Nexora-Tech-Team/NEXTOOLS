@@ -5,7 +5,7 @@ import {
   ArrowRight, RefreshCw, TrendingUp, Users, ShieldAlert,
   Flame, Activity, Timer, ChevronLeft, ChevronRight,
   Users2, ChevronDown, ChevronUp, Download, Play, Square,
-  LayoutDashboard, History,
+  History,
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { DashboardStatSkeleton, DashboardRowSkeleton } from '../components/Skeleton';
@@ -1769,7 +1769,7 @@ function MyDashboard({ user, allStats, myActiveLog, myTodayLogs, myWeekLogs, loa
               <Tooltip
                 cursor={{ fill: 'rgba(99,102,241,0.08)' }}
                 contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8, fontSize: 11 }}
-                formatter={(v: number) => [`${v} jam`, 'Durasi']}
+                formatter={(v) => [`${Number(v).toFixed(1)} jam`, 'Durasi']}
               />
               <Bar dataKey="hours" radius={[4, 4, 0, 0]}>
                 {chartData.map((entry, i) => (
