@@ -1739,6 +1739,7 @@ function TimeTrackingSection({
   onManualLog: (clockIn: string, clockOut: string) => Promise<void>;
   onDeleteLog: (logId: number) => Promise<void>;
 }) {
+  const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
   const [showManual, setShowManual] = useState(false);
   const [manualMode, setManualMode] = useState<'clock-in' | 'clock-out' | 'add'>('add');
@@ -1746,8 +1747,9 @@ function TimeTrackingSection({
   const [manualIn, setManualIn] = useState('');
   const [manualOut, setManualOut] = useState('');
 
+  void tick; // causes re-render every second so Date.now() updates
   const liveSec = timeLogs?.active_log
-    ? Math.floor((Date.now() - new Date(timeLogs.active_log.clock_in).getTime()) / 1000) + (tick * 0)
+    ? Math.floor((Date.now() - new Date(timeLogs.active_log.clock_in).getTime()) / 1000)
     : 0;
   const total = (timeLogs?.total_duration ?? 0) + liveSec;
   const isActive = !!timeLogs?.active_log;
@@ -1831,11 +1833,22 @@ function TimeTrackingSection({
       {myActiveElsewhere && (
         <div className="flex items-start gap-2 rounded-lg bg-amber-500/10 border border-amber-500/30 px-2.5 py-2 text-xs text-amber-400">
           <span className="mt-0.5 w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse flex-shrink-0" />
-          <span>
-            Kamu sedang aktif di task lain
-            {myActiveElsewhere.task_title ? `: "${myActiveElsewhere.task_title}"` : ''}
-            . Clock out dulu sebelum pindah.
-          </span>
+          <div className="flex flex-col gap-1">
+            <span>
+              Kamu sedang aktif di
+              {myActiveElsewhere.project_name ? ` project "${myActiveElsewhere.project_name}"` : ' project lain'}
+              {myActiveElsewhere.task_title ? `, task "${myActiveElsewhere.task_title}"` : ''}
+              . Clock out dulu sebelum pindah.
+            </span>
+            {myActiveElsewhere.project_id && (
+              <a
+                href={`/projects/${myActiveElsewhere.project_id}`}
+                className="self-start underline underline-offset-2 hover:text-amber-300 transition-colors"
+              >
+                Pergi ke project →
+              </a>
+            )}
+          </div>
         </div>
       )}
 
