@@ -1739,7 +1739,6 @@ function TimeTrackingSection({
   onManualLog: (clockIn: string, clockOut: string) => Promise<void>;
   onDeleteLog: (logId: number) => Promise<void>;
 }) {
-  const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
   const [showManual, setShowManual] = useState(false);
   const [manualMode, setManualMode] = useState<'clock-in' | 'clock-out' | 'add'>('add');
