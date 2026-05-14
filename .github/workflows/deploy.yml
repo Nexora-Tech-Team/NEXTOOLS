@@ -71,6 +71,7 @@ jobs:
             echo "🐳 Rebuilding Docker containers..."
             cd "$APP_DIR"
             docker compose up -d --build
+            docker compose restart nextools-backend
 
             echo "🧹 Cleaning old Docker images..."
             docker image prune -f
